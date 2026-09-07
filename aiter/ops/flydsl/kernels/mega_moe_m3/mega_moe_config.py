@@ -2,8 +2,9 @@
 # Copyright (c) 2025 FlyDSL Project Contributors
 """Static MegaMoEM3 configuration rules for MI355X."""
 
+import os
 from bisect import bisect_left
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 
 TOKEN_BUCKETS = (
@@ -228,23 +229,62 @@ def _select_bounded_stage1(
     )
 
 
+# gfx950 LDS budget for one GEMM1 workgroup. Achieved bandwidth measured on
+# MI350X at DEP4/M3 shapes, total traffic / stage1 time, M_r=8192:
+#
+#     LDS 152KB -> 3.19 TB/s      LDS 88KB -> 5.37 TB/s
+#     LDS 120KB -> 4.43 TB/s      LDS 44KB -> 6.16-6.57 TB/s
+#
+# Bigger tiles move fewer bytes but resident workgroups per CU drop with LDS,
+# and past ~88KB the bandwidth loss outruns the traffic saving. 96KB sits above
+# the measured-good point and below the first measured-bad one.
+_STAGE1_LDS_BUDGET = 96 * 1024
+
+
+def _stage1_lds_bytes(sort_block_m: int, tile_n: int, model_dim: int) -> int:
+    """Mirror of the LDS struct in mega_moe_stage1.compile_mega_moe_stage1."""
+    a_lds = sort_block_m * 256  # tile_k=256 is fixed for GEMM1
+    pool = max(2 * a_lds, sort_block_m * (tile_n // 2) * 4)
+    a_scale = sort_block_m * (model_dim // 32)
+    return pool + a_scale
+
+
+def _pick_tile_n(sort_block_m: int, inter_dim: int, model_dim: int) -> int:
+    """Largest tile_n that keeps num_waves=8 legal and LDS inside the budget.
+
+    num_waves=8 is worth ~8% over 4 (measured 5.37 vs 4.97 TB/s at equal LDS and
+    traffic), and it requires NUM_ACC_N = tile_n/8/16 to be even, i.e. tile_n a
+    multiple of 256. tile_n must also divide 2*inter_dim. Among the candidates
+    that survive, larger is better -- activation traffic is pairs*H^2/tile_n --
+    until the LDS budget bites.
+    """
+    n = 2 * inter_dim
+    candidates = [t for t in range(256, n + 1, 256) if n % t == 0]
+    fits = [
+        t
+        for t in candidates
+        if _stage1_lds_bytes(sort_block_m, t, model_dim) <= _STAGE1_LDS_BUDGET
+    ]
+    return max(fits) if fits else min(candidates)
+
+
 def _select_large_stage1(
-    bucket: int, experts_per_rank: int, inter_dim: int
+    bucket: int, experts_per_rank: int, inter_dim: int, model_dim: int
 ) -> Stage1Config:
     if bucket <= 4:
         sort_block_m, tile_n, num_waves = 32, 256, 4
         mfma_amajor, async_a_copy = False, False
     elif bucket <= 128:
         sort_block_m = 32
-        tile_n, num_waves = (512 if inter_dim >= 2048 else 256), 8
-        mfma_amajor, async_a_copy = True, True
-    elif bucket <= 2048:
-        sort_block_m = 64
-        tile_n, num_waves = (512 if inter_dim >= 2048 else 256), 8
+        tile_n, num_waves = _pick_tile_n(sort_block_m, inter_dim, model_dim), 8
         mfma_amajor, async_a_copy = True, True
     else:
+        # sort_block_m sets weight traffic (pairs*H^2/sort_block_m) and must
+        # divide both fuse_cap and payload_chunk_rows, leaving {32, 64, 128}.
+        # 128 measured best at every prefill size once stage2 is re-selected
+        # consistently -- M_r=8192: S1 2701us at 128 against 3678us at 64.
         sort_block_m = 128
-        tile_n, num_waves = (512 if inter_dim >= 2048 else 256), 8
+        tile_n, num_waves = _pick_tile_n(sort_block_m, inter_dim, model_dim), 8
         mfma_amajor, async_a_copy = True, True
 
     work_shards = 1 if bucket <= 32 else 4
@@ -328,7 +368,7 @@ def _select_bucket_config(
     bucket: int, mtpr_class: int, experts_per_rank: int, model_dim: int, inter_dim: int
 ) -> MegaMoEConfig:
     if mtpr_class == MAX_MTPR_CLASS:
-        stage1 = _select_large_stage1(bucket, experts_per_rank, inter_dim)
+        stage1 = _select_large_stage1(bucket, experts_per_rank, inter_dim, model_dim)
         stage2 = _select_large_stage2(bucket, stage1.sort_block_m, model_dim)
         return MegaMoEConfig(
             stage1=stage1, stage2=stage2, p2p_quant="fp8_blockwise_1x32"
@@ -367,6 +407,55 @@ def select_mega_moe_config(
         raise ValueError(f"fixed-slot does not support token bucket {bucket}")
     if mtpr_class <= FIXED_SLOT_MAX_MTPR and experts_per_rank > 64:
         raise ValueError("fixed-slot supports at most 64 experts per rank")
-    return _select_bucket_config(
+    config = _select_bucket_config(
         bucket, mtpr_class, expert_config_class(experts_per_rank), model_dim, inter_dim
     )
+    return _apply_stage1_overrides(config, bucket, mtpr_class, model_dim)
+
+
+# The stage1 tables above (notably `_large_dispatch_cu`) are hand-tuned magic
+# numbers measured on DeepSeek-V4 v4_pro: 48 experts/rank, model_dim 7168,
+# topk 6, EP8. M3 is 32 experts/rank, 6144, topk 4 = world 4, so its dispatch
+# moves markedly less traffic for the same token count. These env hooks exist
+# to re-derive those numbers for M3 without editing the tables.
+_STAGE1_OVERRIDE_ENV = {
+    "num_dispatch_cu": "M3_MEGAMOE_DISPATCH_CU",
+    "grid_mult": "M3_MEGAMOE_GRID_MULT",
+    "work_shards": "M3_MEGAMOE_WORK_SHARDS",
+    # The GEMM1 tile shape. Measured at M_r=8192, MegaMoE's fused GEMM1 is 62%
+    # slower than aiter's standalone mfma_moe1 even with every synchronisation
+    # cost removed, and aiter runs t128x128x256 against this path's 128x512x256.
+    "tile_n": "M3_MEGAMOE_TILE_N",
+    "sort_block_m": "M3_MEGAMOE_SORT_BLOCK_M",
+    "num_waves": "M3_MEGAMOE_NUM_WAVES",
+}
+
+
+def _apply_stage1_overrides(
+    config: MegaMoEConfig, bucket: int, mtpr_class: int, model_dim: int
+) -> MegaMoEConfig:
+    changes = {}
+    for field, env in _STAGE1_OVERRIDE_ENV.items():
+        raw = os.environ.get(env)
+        if raw:
+            changes[field] = int(raw)
+    if not changes:
+        return config
+    stage1 = replace(config.stage1, **changes)
+    stage2 = config.stage2
+    if "sort_block_m" in changes:
+        # stage2 is derived from stage1.sort_block_m -- re-select it, or the two
+        # stages end up mismatched (the runtime asserts block_m must divide
+        # sort_block_m). Overriding stage1 alone silently produced pairings the
+        # selector would never emit.
+        if mtpr_class == MAX_MTPR_CLASS:
+            stage2 = _select_large_stage2(bucket, stage1.sort_block_m, model_dim)
+        else:
+            stage2 = _select_bounded_stage2(
+                bucket,
+                mtpr_class <= FIXED_SLOT_MAX_MTPR,
+                mtpr_class,
+                stage1.sort_block_m,
+                model_dim,
+            )
+    return replace(config, stage1=stage1, stage2=stage2)
