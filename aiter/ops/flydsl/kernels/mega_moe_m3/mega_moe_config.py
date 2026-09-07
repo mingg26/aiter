@@ -370,9 +370,19 @@ def _select_bucket_config(
     if mtpr_class == MAX_MTPR_CLASS:
         stage1 = _select_large_stage1(bucket, experts_per_rank, inter_dim, model_dim)
         stage2 = _select_large_stage2(bucket, stage1.sort_block_m, model_dim)
-        return MegaMoEConfig(
-            stage1=stage1, stage2=stage2, p2p_quant="fp8_blockwise_1x32"
-        )
+        # p2p_quant governs the STAGE2 COMBINE payload only -- the dispatch is
+        # unconditionally fp8 (`mega_moe_stage1.py`: fz_nbytes = model_dim).
+        # Upstream sends the large-mtpr class to "fp8_blockwise_1x32", which
+        # halves the combine row (N_OUT + N_OUT//32 vs N_OUT*2) but quantizes
+        # each expert's contribution BEFORE the cross-rank reduce. The M3
+        # baseline reduce-scatters bf16, so fp8 here makes the A/B arms
+        # numerically unequal: it is the whole reason megamoe's relL2 jumps
+        # 0.0027 -> 0.0266 at mtpr >= 2048 while the baseline stays at 0.0033.
+        # Dispatch-fp8 costs nothing against the baseline (aiter's fused_moe
+        # quantizes activations to fp8 for GEMM1 anyway); combine-fp8 is a real
+        # accuracy loss the baseline does not pay. Keep the combine in bf16 to
+        # match, and use M3_MEGAMOE_P2P_QUANT=fp8_blockwise_1x32 to price it.
+        return MegaMoEConfig(stage1=stage1, stage2=stage2, p2p_quant="none")
 
     fixed_slot = mtpr_class <= FIXED_SLOT_MAX_MTPR
     if fixed_slot:
@@ -431,9 +441,19 @@ _STAGE1_OVERRIDE_ENV = {
 }
 
 
+_P2P_QUANT_ENV = "M3_MEGAMOE_P2P_QUANT"
+
+
 def _apply_stage1_overrides(
     config: MegaMoEConfig, bucket: int, mtpr_class: int, model_dim: int
 ) -> MegaMoEConfig:
+    p2p = os.environ.get(_P2P_QUANT_ENV)
+    if p2p:
+        # Both invariant dicts are pre-built in MegaMoEM3._build_fused_stage2
+        # and mori sizes the combine buffer for bf16 (the wider row), so either
+        # value is legal at any bucket. This is a real compile-cache key
+        # (kernel_name carries p2p_quant_type), so runs may share a JIT dir.
+        config = replace(config, p2p_quant=p2p)
     changes = {}
     for field, env in _STAGE1_OVERRIDE_ENV.items():
         raw = os.environ.get(env)
