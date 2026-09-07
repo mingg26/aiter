@@ -28,15 +28,26 @@ class MegaMoEV2:
     # fmt: off
     def __init__(self, *, rank: int, world_size: int, model_dim: int, inter_dim: int, experts: int, topk: int,
         quant: str, w1: torch.Tensor, w1_scale: torch.Tensor, w2: torch.Tensor, w2_scale: torch.Tensor,
-        g2_b_dtype: str = "fp4",
-        max_tok_per_rank: int, mega_scheme: str = "fixedslot", swiglu_limit: float = 0.0):
+        g2_b_dtype: str | None = None, g1_b_dtype: str | None = None,
+        max_tok_per_rank: int, mega_scheme: str = "fixedslot", swiglu_limit: float = 0.0,
+        swiglu_alpha: float = 1.0, swiglu_beta: float = 0.0):
     # fmt: on
-        if quant != "a8w4":
-            raise ValueError("MegaMoEV2 currently supports quant='a8w4' only")
-        # GEMM2's B operand can be FP8 while GEMM1 stays FP4: that is the
-        # MiniMax-M3 Phase-1 shape (stage2 adapted first, stage1 left alone).
-        if g2_b_dtype not in ("fp4", "fp8"):
-            raise ValueError(f"g2_b_dtype must be 'fp4' or 'fp8', got {g2_b_dtype!r}")
+        # "a8w4" is DeepSeek-V4 (FP8 activations, packed-FP4 weights); "a8w8"
+        # is MiniMax-M3 (FP8 both sides). The activation path is FP8 E4M3 with
+        # UE8M0 per-1x32 scales either way -- only the B operand differs -- so
+        # the quant string just picks the default B dtype for both GEMMs.
+        if quant not in ("a8w4", "a8w8"):
+            raise ValueError(f"MegaMoEV2 supports quant in a8w4|a8w8, got {quant!r}")
+        default_b = "fp8" if quant == "a8w8" else "fp4"
+        # Per-GEMM overrides express the mixed shape (e.g. FP8 GEMM2 with an
+        # FP4 GEMM1) used while migrating one stage at a time.
+        g2_b_dtype = default_b if g2_b_dtype is None else g2_b_dtype
+        g1_b_dtype = default_b if g1_b_dtype is None else g1_b_dtype
+        for name, value in (("g1_b_dtype", g1_b_dtype), ("g2_b_dtype", g2_b_dtype)):
+            if value not in ("fp4", "fp8"):
+                raise ValueError(f"{name} must be 'fp4' or 'fp8', got {value!r}")
+        self.quant = quant
+        self.g1_b_dtype = g1_b_dtype
         self.g2_b_dtype = g2_b_dtype
         if experts % world_size != 0:
             raise ValueError(f"experts={experts} must be divisible by world_size={world_size}")
@@ -51,6 +62,10 @@ class MegaMoEV2:
         self.topk = int(topk)
         self.mtpr = int(max_tok_per_rank)
         self.swiglu_limit = float(swiglu_limit)
+        # SwiGLU-OAI constants. Defaults reproduce DeepSeek-V4 exactly;
+        # MiniMax-M3 passes alpha=1.702, beta=1.0.
+        self.swiglu_alpha = float(swiglu_alpha)
+        self.swiglu_beta = float(swiglu_beta)
         if self.swiglu_limit < 0:
             raise ValueError("swiglu_limit must be non-negative")
         self.dev = torch.device("cuda", rank)
@@ -258,7 +273,8 @@ class MegaMoEV2:
             work_shards=config.work_shards, external_grouping=config.external_grouping,
             external_counting=config.external_counting, payload_chunk_rows=config.payload_chunk_rows,
             payload_tile_ready=config.payload_tile_ready,
-            swiglu_limit=self.swiglu_limit)
+            swiglu_limit=self.swiglu_limit, swiglu_alpha=self.swiglu_alpha,
+            swiglu_beta=self.swiglu_beta, b_dtype=self.g1_b_dtype)
         # fmt: on
         self._s1_active_tile_m = config.sort_block_m
         return self._s1_active_tile_m

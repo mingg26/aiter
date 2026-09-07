@@ -252,17 +252,28 @@ class AS2RLoader:
 
 
 class BWeightLoader:
-    """Per-K-step fp4 gate&up weights VMEM->reg (i32x8, 128b widened). shuffle_weight_w4 N-major layout."""
+    """Per-K-step gate&up weights VMEM->reg. shuffle_weight_w4 N-major layout.
 
-    def __init__(self, *, w_rsrc, num_acc_n, model_dim, cache_modifier=0):
+    FP4 B: a lane's 32 elements are one 16B cell -> i32x4.
+    FP8 B: the same 32 elements are 32B, laid out as two 16B cells one full
+    64-lane block (1024B) apart -- the same cell pairing GEMM2 uses -- so the
+    k0 block doubles to 2048B and the row pitch doubles to model_dim*16, while
+    the per-lane offsets and the 128-K span of a k0 block are unchanged.
+    """
+
+    def __init__(self, *, w_rsrc, num_acc_n, model_dim, cache_modifier=0, b_dtype="fp4"):
         self._w_rsrc = w_rsrc
         self._num_acc_n = num_acc_n
         self._cache_modifier = int(cache_modifier)
         self._lane = fx.thread_idx.x % 64
+        self._b_dtype = b_dtype
+        self._is_f8_b = b_dtype == "fp8"
+        self._cells = 2 if self._is_f8_b else 1
         self._stride_nlane = 16
         self._stride_klane = 256
-        self._stride_k0 = 1024
-        self._stride_n0 = model_dim * 8
+        self._stride_cell = 1024
+        self._stride_k0 = 1024 * self._cells
+        self._stride_n0 = model_dim * (16 if self._is_f8_b else 8)
 
     def _load_pack(self, row_base_i32, ni, kstep_i32, ksub):
         lane_row = fx.Int32(self._lane % 16)
@@ -275,13 +286,19 @@ class BWeightLoader:
             + lane_k * fx.Int32(self._stride_klane)
             + lane_row * fx.Int32(self._stride_nlane)
         )
-        return _buffer_load(
-            self._w_rsrc,
-            byte // fx.Int32(16),
-            fx.Int32,
-            4,
-            self._cache_modifier,
-        )
+        cells = [
+            _buffer_load(
+                self._w_rsrc,
+                (byte + fx.Int32(c * self._stride_cell)) // fx.Int32(16),
+                fx.Int32,
+                4,
+                self._cache_modifier,
+            )
+            for c in range_constexpr(self._cells)
+        ]
+        if const_expr(self._is_f8_b):
+            return Vec(cells[0]).shuffle(Vec(cells[1]), list(range(8)))
+        return cells[0]
 
     def load_step(self, row_base_i32, kstep_i32):
         """list[num_acc_n] of [ksub0_i32x4, ksub1_i32x4] for this K-step."""
@@ -400,11 +417,16 @@ class AScaleLoader:
 
 
 class MfmaScaleGU:
-    """Gate/up scaled-MFMA atoms for FP8 A x FP4 B."""
+    """Gate/up scaled-MFMA atoms for FP8 A x (FP4|FP8) B."""
 
-    def __init__(self, *, m_repeat, num_acc_n):
+    def __init__(self, *, m_repeat, num_acc_n, b_dtype="fp4"):
         self._m_repeat = m_repeat
         self._num_acc_n = num_acc_n
+        self._is_f8_b = b_dtype == "fp8"
+        # A lane feeds 32 B elements either way: 16B (i32x4) as FP4, 32B (i32x8)
+        # as FP8. opsel keeps its 0..3 range in both cases.
+        self._b_ndw = 8 if self._is_f8_b else 4
+        elem_b = fx.Float8E4M3FN if self._is_f8_b else fx.Float4E2M1FN
         self._atoms = {
             (osa, osb): fx.make_mma_atom(
                 fx.rocdl.cdna4.MFMA_Scale(
@@ -412,7 +434,7 @@ class MfmaScaleGU:
                     16,
                     128,
                     fx.Float8E4M3FN,
-                    fx.Float4E2M1FN,
+                    elem_b,
                     opsel_a=osa,
                     opsel_b=osb,
                 )
@@ -429,7 +451,7 @@ class MfmaScaleGU:
         opsel_a = ksub * _PACK + ia
         opsel_b = ksub * _PACK + jb
         a_frag = fx.make_rmem_tensor(8, fx.Int32)
-        b_frag = fx.make_rmem_tensor(4, fx.Int32)
+        b_frag = fx.make_rmem_tensor(self._b_ndw, fx.Int32)
         c_frag = fx.make_rmem_tensor(4, fx.Float32)
         a_frag.store(Vec(a_op))
         b_frag.store(Vec(b_op))
@@ -552,7 +574,8 @@ class SiluQuantEpilogue:
 
     # fmt: off
     def __init__(self, *, out_rsrc, out_scale_rsrc, sorted_rsrc, tokens, inter_dim, m_repeat, num_acc_n,
-        sort_block_m, tile_n, num_waves, lds_out, swiglu_limit=0.0, always_valid=False, out_tensor=None):
+        sort_block_m, tile_n, num_waves, lds_out, swiglu_limit=0.0, swiglu_alpha=1.0, swiglu_beta=0.0,
+        always_valid=False, out_tensor=None):
     # fmt: on
         self._out_rsrc = out_rsrc
         self._out_scale_rsrc = out_scale_rsrc
@@ -566,13 +589,19 @@ class SiluQuantEpilogue:
         self._num_waves = num_waves
         self._lds_out = lds_out
         self._swiglu_limit = float(swiglu_limit)
+        # DeepSeek-V4 uses alpha=1 and no beta term; MiniMax-M3's SwiGLU-OAI is
+        # alpha=1.702 with (up + 1.0). Note the gate stays clamped on the UPPER
+        # side only in both -- that part is already correct for M3.
+        self._swiglu_alpha = float(swiglu_alpha)
+        self._swiglu_beta = float(swiglu_beta)
         self._always_valid = always_valid
         self._out_tensor = out_tensor
         self._lane = fx.thread_idx.x % 64
         self._sorted_scale_cols_i32 = (inter_dim // 32 + 7) // 8 * 8
 
     def _silu(self, g):
-        emu = (g * fx.Float32(-1.4426950408889634)).exp2()
+        # g * sigmoid(alpha*g), via exp2: -log2(e) * alpha folds into one constant.
+        emu = (g * fx.Float32(-1.4426950408889634 * self._swiglu_alpha)).exp2()
         return g * (fx.Float32(1.0) / (fx.Float32(1.0) + emu))
 
     def _combine(self, acc):
@@ -587,12 +616,19 @@ class SiluQuantEpilogue:
     def _silu_mul(self, gate_v4, up_v4):
         gv = Vec(gate_v4)
         uv = Vec(up_v4)
+        beta = self._swiglu_beta
+
+        def _up(u):
+            # beta == 0 must emit exactly the pre-existing code so the DSV4 path
+            # stays bit-identical.
+            return u if beta == 0.0 else u + fx.Float32(beta)
+
         if self._swiglu_limit <= 0:
-            elems = [self._silu(gv[i]) * uv[i] for i in range_constexpr(4)]
+            elems = [self._silu(gv[i]) * _up(uv[i]) for i in range_constexpr(4)]
             return Vec.from_elements(elems, fx.Float32)
         limit = fx.Float32(self._swiglu_limit)
         elems = [
-            self._silu(-(-gv[i]).maximumf(-limit)) * fx.clampf(uv[i], -limit, limit)
+            self._silu(-(-gv[i]).maximumf(-limit)) * _up(fx.clampf(uv[i], -limit, limit))
             for i in range_constexpr(4)
         ]
         return Vec.from_elements(elems, fx.Float32)
