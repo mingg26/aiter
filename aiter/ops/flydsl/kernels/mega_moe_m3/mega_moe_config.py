@@ -51,6 +51,9 @@ class Stage1Config:
     external_counting: bool = False
     payload_chunk_rows: int = 0
     payload_tile_ready: bool = False
+    # m_tiles per GEMM1 reuse band; 1 = upstream's n_tile-fast order. See
+    # build_fused_gemm1._decode in gemm1.py.
+    band_m: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,9 +271,18 @@ def _pick_tile_n(sort_block_m: int, inter_dim: int, model_dim: int) -> int:
     return max(fits) if fits else min(candidates)
 
 
+# The dispatch's payload chunk, in rows; must be a multiple of sort_block_m.
+# It is also the natural GEMM1 weight-reuse band (band_m =
+# PAYLOAD_CHUNK_ROWS // sort_block_m), but banding measured FLAT -- see
+# build_fused_gemm1._decode and handoff_megamoe.md S7.4 -- so band_m stays 1
+# and the reorder survives only as the M3_MEGAMOE_BAND_M hook.
+PAYLOAD_CHUNK_ROWS = 384
+
+
 def _select_large_stage1(
     bucket: int, experts_per_rank: int, inter_dim: int, model_dim: int
 ) -> Stage1Config:
+    band_m = 1
     if bucket <= 4:
         sort_block_m, tile_n, num_waves = 32, 256, 4
         mfma_amajor, async_a_copy = False, False
@@ -305,8 +317,9 @@ def _select_large_stage1(
         work_shards=work_shards,
         external_grouping=bucket == 4 or bucket >= 256,
         external_counting=bucket >= 256,
-        payload_chunk_rows=384,
+        payload_chunk_rows=PAYLOAD_CHUNK_ROWS,
         payload_tile_ready=True,
+        band_m=band_m,
     )
 
 
@@ -438,6 +451,8 @@ _STAGE1_OVERRIDE_ENV = {
     "tile_n": "M3_MEGAMOE_TILE_N",
     "sort_block_m": "M3_MEGAMOE_SORT_BLOCK_M",
     "num_waves": "M3_MEGAMOE_NUM_WAVES",
+    # GEMM1 work-index order: m_tiles per reuse band (1 = upstream).
+    "band_m": "M3_MEGAMOE_BAND_M",
 }
 
 

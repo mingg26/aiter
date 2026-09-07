@@ -77,7 +77,7 @@ def compile_mega_moe_stage1(
     waves_per_eu_hint: int = 2, num_cu: int = 256, num_dispatch_cu: int = 32, b_nt: int = -1,
     work_shards: int | None = None, external_grouping: bool | None = None,
     external_counting: bool | None = None, payload_chunk_rows: int = 0, payload_tile_ready: bool = False,
-    swiglu_limit: float = 7.0, swiglu_alpha: float = 1.702, swiglu_beta: float = 1.0,
+    band_m: int = 1, swiglu_limit: float = 7.0, swiglu_alpha: float = 1.702, swiglu_beta: float = 1.0,
 ):
     arch = str(get_rocm_arch() or "")
     if not arch.startswith("gfx95"):
@@ -99,6 +99,12 @@ def compile_mega_moe_stage1(
     if payload_chunk_rows:
         assert not fixed_slot_dispatch and payload_chunk_rows % sort_block_m == 0
     assert not payload_tile_ready or payload_chunk_rows > 0
+    BAND_M = int(band_m)
+    assert BAND_M >= 1, "band_m is a count of m_tiles per reuse band"
+    # See build_fused_gemm1's _decode. band_m > 1 needs a per-tile payload wait,
+    # because a band's m_tiles are visited before its n_tiles complete and the
+    # coarser per-expert wait would gate the whole band on the whole expert.
+    assert BAND_M == 1 or payload_tile_ready, "band_m > 1 requires payload_tile_ready"
     planner_blocks = 1
     # Keep the fused grid on an exact CU multiple instead of appending control/producer CTAs as a tail.
     grid_x = num_cu * grid_mult - planner_blocks - dispatch_blocks
@@ -175,7 +181,7 @@ def compile_mega_moe_stage1(
         f"aa{int(async_a_copy)}"
         f"_tr{int(use_tile_resource)}wpe{waves_per_eu_hint}_bnt{b_cache_modifier}_ws{WORK_SHARDS}"
         f"_pc{payload_chunk_rows}"
-        f"_ptr{int(payload_tile_ready)}"
+        f"_ptr{int(payload_tile_ready)}_bm{BAND_M}"
         f"{swiglu_suffix}"
     )
 
@@ -383,7 +389,7 @@ def compile_mega_moe_stage1(
             out_rsrc = _make_buffer(out, fx.Int16, max_size=False, num_records_bytes=out_nbytes)
         os_rsrc = _make_buffer(out_scale, fx.Int8, max_size=False, num_records_bytes=os_nbytes)
 
-        expert_of_flat, _do_scheduled_tile = build_fused_gemm1(
+        expert_of_flat, _m_tile_of_flat, _do_scheduled_tile = build_fused_gemm1(
             x_tensor=x, w_rsrc=w_rsrc,
             sw_rsrc=sw_rsrc, sx_rsrc=sx_rsrc, out_rsrc=out_rsrc, os_rsrc=os_rsrc,
             trb_rsrc=trb_rsrc, expert_rsrc=expert_rsrc, out_tensor=out,
@@ -395,6 +401,7 @@ def compile_mega_moe_stage1(
             n_tiles=N_TILES, expert_offset=fz_rank * fz_epr, b_cache_modifier=b_cache_modifier,
             swizzle_a=swizzle_a, pipe_weights=pipe_weights, mfma_amajor=mfma_amajor,
             async_a_copy=async_a_copy, use_tile_resource=use_tile_resource,
+            band_m=BAND_M,
             swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
         )
 
@@ -408,11 +415,19 @@ def compile_mega_moe_stage1(
 
         num_valid = _buffer_load(nv_rsrc, fx.Int32(0), fx.Int32)
         num_m_tiles = ceildiv(num_valid, fx.Int32(sort_block_m))
-        total_work = num_m_tiles * fx.Int32(N_TILES)
+        if const_expr(BAND_M == 1):
+            total_work = num_m_tiles * fx.Int32(N_TILES)
+        else:
+            # Round the index space up to whole bands so _decode stays a
+            # bijection on it. The tail tickets decode to m_tile >= num_m_tiles
+            # and are skipped in the work loop below.
+            total_work = (
+                ceildiv(num_m_tiles, fx.Int32(BAND_M)) * fx.Int32(BAND_M * N_TILES)
+            )
 
         def _wait_tile_payload(flat):
             if const_expr(payload_tile_ready):
-                tile_index = flat // fx.Int32(N_TILES)
+                tile_index = _m_tile_of_flat(flat)
                 expected_tiles = _buffer_load(
                     _make_buffer_from_addr(addr_tile_expected, fx.Int32), tile_index, fx.Int32
                 )
@@ -443,18 +458,30 @@ def compile_mega_moe_stage1(
             fx.barrier()
             work = Vec(work_scratch_view.load())[0]
             if tid == fx.Int32(0):
-                has_work = (work < total_work).select(fx.Int32(1), fx.Int32(0))
-                if has_work != fx.Int32(0):  # noqa: SIM102 - keep the device and compile-time branches separate.
+                # bit0 = keep drawing tickets, bit1 = this ticket is a real tile.
+                # They differ only for a padded band's tail: those tickets must be
+                # SKIPPED rather than terminate the loop, because the ticket
+                # counter is monotonic -- retiring on one would drop every tile
+                # behind it.
+                in_range = (work < total_work).select(fx.Int32(1), fx.Int32(0))
+                if const_expr(BAND_M == 1):
+                    flags = in_range | (in_range << fx.Int32(1))
+                else:
+                    valid = (_m_tile_of_flat(work) < num_m_tiles).select(
+                        fx.Int32(1), fx.Int32(0)
+                    )
+                    flags = in_range | ((in_range * valid) << fx.Int32(1))
+                if (flags & fx.Int32(2)) != fx.Int32(0):  # noqa: SIM102 - keep the device and compile-time branches separate.
                     if const_expr(not direct_fixed_slot):
                         _wait_tile_payload(work)
-                fx.ptr_store(Vec.from_elements([has_work], fx.Int32), work_scratch)
+                fx.ptr_store(Vec.from_elements([flags], fx.Int32), work_scratch)
             fx.barrier()
-            has_work = Vec(work_scratch_view.load())[0]
-            if has_work != fx.Int32(0):
+            flags = Vec(work_scratch_view.load())[0]
+            if (flags & fx.Int32(2)) != fx.Int32(0):
                 if const_expr(not direct_fixed_slot):
                     comm_ops.fence_system_acquire()
                 _do_scheduled_tile(work)
-            consumer_active = has_work != fx.Int32(0)
+            consumer_active = (flags & fx.Int32(1)) != fx.Int32(0)
 
     @flyc.jit
     def launch(
@@ -484,7 +511,7 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
     mfma_amajor=False, swizzle_a=True, async_a_copy=False, num_dispatch_cu=32,
     use_tile_resource=True, waves_per_eu_hint=2,
     b_nt=-1, work_shards=None, external_grouping=None, external_counting=None,
-    payload_chunk_rows=0, payload_tile_ready=False, swiglu_limit=0.0,
+    payload_chunk_rows=0, payload_tile_ready=False, band_m=1, swiglu_limit=0.0,
     swiglu_alpha=1.702, swiglu_beta=1.0):
     launch = compile_mega_moe_stage1(
         model_dim=model_dim, inter_dim=inter_dim, rank=rank, experts_per_rank=experts_per_rank,
@@ -496,7 +523,7 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
         waves_per_eu_hint=waves_per_eu_hint, num_cu=num_cu, num_dispatch_cu=num_dispatch_cu,
         b_nt=b_nt, work_shards=work_shards, external_grouping=external_grouping,
         external_counting=external_counting, payload_chunk_rows=payload_chunk_rows,
-        payload_tile_ready=payload_tile_ready,
+        payload_tile_ready=payload_tile_ready, band_m=band_m,
         swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
     )
     _run_compiled(

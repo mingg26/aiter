@@ -271,7 +271,7 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
     model_dim, inter_dim, sort_block_m, tile_n, num_waves, n_per_wave, wave_id,
     m_repeat, num_acc_n, a_k_step_bytes, total_threads, k_iters, a_lds_i32, n_tiles,
     expert_offset, b_cache_modifier, swizzle_a, pipe_weights, mfma_amajor, async_a_copy,
-    use_tile_resource, swiglu_limit=0.0, swiglu_alpha=1.702, swiglu_beta=1.0):
+    use_tile_resource, band_m=1, swiglu_limit=0.0, swiglu_alpha=1.702, swiglu_beta=1.0):
     # fmt: on
     """Build the GEMM1 atoms and return its expert resolver and tile runner."""
     sched = TileScheduler(
@@ -310,10 +310,45 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
         out_tensor=out_tensor if use_tile_resource else None)
     # fmt: on
 
+    # Work-index order. band_m=1 is upstream: n_tile is the FAST axis, so the
+    # concurrently resident blocks share one m_tile -- the A slab -- and between
+    # them sweep the expert's entire w1 slab. Weight traffic is
+    # pairs*2*I*H/sort_block_m against activation's pairs*2*I*H/tile_n, i.e. 2x
+    # larger at sort_block_m=128 / tile_n=256, so that order gives the cache the
+    # SMALLER operand and re-reads w1 once per m_tile (M_r/1024 times at
+    # sort_block_m=128 -- an amplification that grows linearly with batch).
+    #
+    # band_m=G makes m_tile the fast axis WITHIN a band of G consecutive
+    # m_tiles, so resident blocks instead share a tile_n x model_dim B slab and
+    # stream A. It stays banded rather than fully transposed for two reasons:
+    # m_tiles map to experts only through a runtime lookup (a global transpose
+    # would pair each n_tile with m_tiles from different experts, and B is
+    # per-expert, so there would be no reuse at all), and stage1's per-tile
+    # payload wait is m_tile-indexed -- marching the whole grid across every
+    # m_tile before advancing n_tile would force the dispatch to complete before
+    # GEMM1 could start, serialising the overlap the fusion exists for. Keep G
+    # at the dispatch's own chunk granularity (payload_chunk_rows/sort_block_m)
+    # so the wait granularity and the reuse granularity are the same object.
+    #
+    # Reordering is bit-exact: every tile writes disjoint output through
+    # epi.store and nothing accumulates across tiles.
+    band = const_expr(int(band_m))
+    band_work = const_expr(band * n_tiles)
+
     def _decode(flat):
-        m_tile = flat // fx.Int32(n_tiles)
-        n_tile = flat - m_tile * fx.Int32(n_tiles)
+        if const_expr(band == 1):
+            m_tile = flat // fx.Int32(n_tiles)
+            n_tile = flat - m_tile * fx.Int32(n_tiles)
+            return m_tile, n_tile
+        band_i = flat // fx.Int32(band_work)
+        rem = flat - band_i * fx.Int32(band_work)
+        n_tile = rem // fx.Int32(band)
+        m_tile = band_i * fx.Int32(band) + (rem - n_tile * fx.Int32(band))
         return m_tile, n_tile
+
+    def m_tile_of_flat(flat):
+        m_tile, _n = _decode(flat)
+        return m_tile
 
     def expert_of_flat(flat):
         m_tile, _n = _decode(flat)
@@ -331,7 +366,7 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
             trb_rsrc)
         # fmt: on
 
-    return expert_of_flat, do_scheduled_tile
+    return expert_of_flat, m_tile_of_flat, do_scheduled_tile
 
 
 # fmt: off
@@ -403,7 +438,7 @@ def compile_gemm1(
         )
         wave_id = fx.thread_idx.x // 64
 
-        _, run_tile = build_fused_gemm1(
+        _, _, run_tile = build_fused_gemm1(
             x_tensor=x, w_rsrc=w_rsrc, sw_rsrc=sw_rsrc,
             sx_rsrc=sx_rsrc, out_rsrc=out_rsrc, os_rsrc=os_rsrc, trb_rsrc=trb_rsrc,
             expert_rsrc=expert_rsrc, out_tensor=out, a_buf=a_buf,

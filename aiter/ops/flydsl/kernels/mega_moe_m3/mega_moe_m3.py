@@ -255,7 +255,7 @@ class MegaMoEM3:
             waves_per_eu_hint=config.waves_per_eu_hint, b_nt=config.b_nt,
             work_shards=config.work_shards, external_grouping=config.external_grouping,
             external_counting=config.external_counting, payload_chunk_rows=config.payload_chunk_rows,
-            payload_tile_ready=config.payload_tile_ready,
+            payload_tile_ready=config.payload_tile_ready, band_m=config.band_m,
             swiglu_limit=self.swiglu_limit, swiglu_alpha=self.swiglu_alpha,
             swiglu_beta=self.swiglu_beta)
         # fmt: on
