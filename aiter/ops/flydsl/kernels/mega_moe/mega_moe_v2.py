@@ -28,10 +28,16 @@ class MegaMoEV2:
     # fmt: off
     def __init__(self, *, rank: int, world_size: int, model_dim: int, inter_dim: int, experts: int, topk: int,
         quant: str, w1: torch.Tensor, w1_scale: torch.Tensor, w2: torch.Tensor, w2_scale: torch.Tensor,
+        g2_b_dtype: str = "fp4",
         max_tok_per_rank: int, mega_scheme: str = "fixedslot", swiglu_limit: float = 0.0):
     # fmt: on
         if quant != "a8w4":
             raise ValueError("MegaMoEV2 currently supports quant='a8w4' only")
+        # GEMM2's B operand can be FP8 while GEMM1 stays FP4: that is the
+        # MiniMax-M3 Phase-1 shape (stage2 adapted first, stage1 left alone).
+        if g2_b_dtype not in ("fp4", "fp8"):
+            raise ValueError(f"g2_b_dtype must be 'fp4' or 'fp8', got {g2_b_dtype!r}")
+        self.g2_b_dtype = g2_b_dtype
         if experts % world_size != 0:
             raise ValueError(f"experts={experts} must be divisible by world_size={world_size}")
         if max_tok_per_rank <= 0 or max_tok_per_rank & (max_tok_per_rank - 1):
@@ -325,6 +331,7 @@ class MegaMoEV2:
                 "comb_inp_nbytes": int(comb_cfg.max_num_inp_token_per_rank) * int(k) * p2p_row_nbytes,
                 "HIDDEN_MAX": int(comb_cfg.hidden_dim), "INTER_MAX": int(self.inter_dim), "cu_num": int(cu_num),
                 "p2p_quant_type": p2p_quant, "fixed_slot_dispatch": bool(self._s1_fixed_slot),
+                "b_dtype": self.g2_b_dtype,
             }
         self._g2_combine_placeholder = torch.empty(
             1, comb_cfg.hidden_dim, dtype=comb_cfg.combine_dtype, device=dev

@@ -47,13 +47,14 @@ def scale_view(
     return fx.rocdl.make_buffer_tensor(view, max_size=False)
 
 
-def scale_mma_atoms(a_dtype):
-    """16 (opselA,opselB) scaled-MFMA atoms; A elem is fp8/fp4, B is fp4."""
+def scale_mma_atoms(a_dtype, b_dtype="fp4"):
+    """16 (opselA,opselB) scaled-MFMA atoms; A and B elems are each fp8 or fp4."""
     elem_a = Float8E4M3FN if a_dtype == "fp8" else Float4E2M1FN
+    elem_b = Float8E4M3FN if b_dtype == "fp8" else Float4E2M1FN
     return {
         (osa, osb): fx.make_mma_atom(
             fx.rocdl.cdna4.MFMA_Scale(
-                16, 16, 128, elem_a, Float4E2M1FN, opsel_a=osa, opsel_b=osb
+                16, 16, 128, elem_a, elem_b, opsel_a=osa, opsel_b=osb
             )
         )
         for osa in range(4)
@@ -179,6 +180,7 @@ def gemm2_compute_v2(
     INTER_MAX,
     aStages,
     a_dtype,
+    b_dtype="fp4",
     has_pad=False,
     SBM=None,
     g2_bhoist=True,
@@ -194,6 +196,9 @@ def gemm2_compute_v2(
     tilesPerScaleChunk = 256 // BK  # K-tiles sharing one 256-K E8M0 word
     numAccN = (BN // 4) // 16  # 16-column MFMA subblocks per wave
     nPairs = max(1, numAccN // 2)  # one B-scale per two 16-column subblocks
+    is_f8_b = b_dtype == "fp8"
+    B_NDW = 8 if is_f8_b else 4  # i32 dwords per lane per MFMA K-half
+    B_CELLS = 2 if is_f8_b else 1  # 16B cells making up those dwords
     # BM16: single 16-row block owning a 32-row scale chunk (chunk==m_block_idx, rg0-only).
     is_bm16 = BM < 32
     rg_off = 0
@@ -215,7 +220,7 @@ def gemm2_compute_v2(
         N_OUT_rt // fx.Int32(32)
     ) * kBS_stride_n0_dw  # (N_OUT//16//2)*stride
     num_n_blocks = N_OUT_rt // fx.Int32(BN)
-    KH4 = K_rt // fx.Int32(8)  # i32 col stride (= K_HALF//4)
+    KH4 = K_rt // fx.Int32(4 if is_f8_b else 8)  # i32 col stride (fp4: K_HALF//4)
     K_SCALE_CHUNKS_MAX = INTER_MAX // 256
 
     # Padded shapes mask weight tiles beyond the real K/N extents.
@@ -242,7 +247,7 @@ def gemm2_compute_v2(
     lane_mod_16 = lane % 16
 
     s_aq_base = lds_base_i32
-    mma_atoms = scale_mma_atoms(a_dtype)
+    mma_atoms = scale_mma_atoms(a_dtype, b_dtype)
 
     # A activation: global->LDS DMA (issue_a_load_lds), then LDS->reg ds-read (issue_a_ds_read).
     A_NDW = (
@@ -372,7 +377,7 @@ def gemm2_compute_v2(
         for mw in range_constexpr(nPairs)
     ]
 
-    frag_tmpl = fx.make_rmem_tensor(4, Int32)
+    frag_tmpl = fx.make_rmem_tensor(B_NDW, Int32)
     # B-scale word template shares the A-scale layout (sc_frag_tmpl).
 
     def issue_b_load_into(bqf, bsf, kt_rt):
@@ -383,8 +388,8 @@ def gemm2_compute_v2(
                     bq_base_dw[j]
                     + lane_div_16 * fx.Int32(64)
                     + lane_mod_16 * fx.Int32(4)
-                    + kt_rt * fx.Int32(kHalves * 256)
-                    + fx.Int32(half * 256)
+                    + kt_rt * fx.Int32(kHalves * 256 * B_CELLS)
+                    + fx.Int32(half * 256 * B_CELLS)
                 )
                 load_mask = None
                 if const_expr(has_pad):
@@ -392,15 +397,23 @@ def gemm2_compute_v2(
                     load_mask = (col < N_real) & (
                         kt_rt * fx.Int32(kHalves) + fx.Int32(half) < halves_real
                     )
-                bq_vec = buffer_ops.buffer_load(
-                    bq_rsrc,
-                    bq_off_dw,
-                    vec_width=4,
-                    dtype=T.i32,
-                    mask=load_mask,
-                    cache_modifier=2 if use_nt else 0,
-                )
-                bqf[j][half].store(Vec(bq_vec))
+                cells = [
+                    buffer_ops.buffer_load(
+                        bq_rsrc,
+                        bq_off_dw + fx.Int32(c * 256),
+                        vec_width=4,
+                        dtype=T.i32,
+                        mask=load_mask,
+                        cache_modifier=2 if use_nt else 0,
+                    )
+                    for c in range_constexpr(B_CELLS)
+                ]
+                if const_expr(is_f8_b):
+                    bqf[j][half].store(
+                        Vec(cells[0]).shuffle(Vec(cells[1]), list(range(B_NDW)))
+                    )
+                else:
+                    bqf[j][half].store(Vec(cells[0]))
         chunk_kt = (
             kt_rt
             if const_expr(tilesPerScaleChunk == 1)

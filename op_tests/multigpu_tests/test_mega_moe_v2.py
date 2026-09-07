@@ -29,6 +29,15 @@ NETWORKS = {
         "topk": 6,
         "swiglu_limit": 10.0,
     },
+    # MiniMax-M3. 128 experts keeps experts-per-rank within the fixed-slot cap
+    # at EP4 (32) and EP8 (16), unlike v4_pro which needs 8 ranks to get under it.
+    "m3": {
+        "model_dim": 6144,
+        "inter_dim": 3072,
+        "experts": 128,
+        "topk": 4,
+        "swiglu_limit": 7.0,
+    },
 }
 
 
@@ -86,7 +95,8 @@ def _make_inputs(tokens, model_dim, experts, topk, rank, seed, device):
     )
 
 
-def _quantize_weights(model_dim, inter_dim, local_experts, rank, seed, device):
+def _quantize_weights(model_dim, inter_dim, local_experts, rank, seed, device,
+                      g2_b_dtype="fp4"):
     generator = torch.Generator(device=device).manual_seed(seed + 1000 + rank)
     quantize = aiter.get_torch_quant(aiter.QuantType.per_1x32)
 
@@ -111,11 +121,46 @@ def _quantize_weights(model_dim, inter_dim, local_experts, rank, seed, device):
         generator=generator,
     )
     w2.mul_(inter_dim**-0.25)
-    w2_q, w2_scale = quantize(w2, quant_dtype=dtypes.fp4x2)
-    w2_q = w2_q.view(local_experts, model_dim, inter_dim // 2)
+    if g2_b_dtype == "fp8eq":
+        # Equivalence probe for the FP8 B path: quantize to FP4, dequantize, and
+        # re-quantize to FP8. Every e2m1 value (0, .5, 1, 1.5, 2, 3, 4, 6 x scale)
+        # is exactly representable in e4m3 and the block amax is unchanged, so the
+        # FP8 payload encodes bit-identical numbers to the FP4 one. A correct FP8
+        # B path must then reproduce the FP4 run's relL2 exactly; a wrong stride,
+        # cell pairing or MFMA operand width cannot hide under the activation
+        # quantization floor.
+        from aiter.ops.flydsl.kernels.mega_moe.quant import per_1x32_mx_quant
+
+        w2_q4, w2_scale4 = quantize(w2, quant_dtype=dtypes.fp4x2)
+        vals = fp4_utils.mxfp4_to_f32(w2_q4).view(local_experts * model_dim, inter_dim)
+        sc = fp4_utils.e8m0_to_f32(w2_scale4).view(
+            local_experts * model_dim, inter_dim // 32
+        )
+        deq = (vals * sc.repeat_interleave(32, dim=-1)).to(torch.bfloat16)
+        w2_q, w2_scale = per_1x32_mx_quant(deq, quant_mode="fp8")
+        w2_q = w2_q.view(local_experts, model_dim, inter_dim)
+        del w2_q4, w2_scale4, vals, sc, deq
+    elif g2_b_dtype == "fp8":
+        # FP8 B: one byte per element instead of a packed nibble pair, so the
+        # row is twice as wide. shuffle_weight_a16w4 is a pure byte permutation
+        # (the fp4 assumption lives only in the bytes-per-row), so it is reused
+        # as-is -- the kernel side compensates via the doubled i32 row stride.
+        # aiter.get_torch_quant(per_1x32) is fp4-only; mega_moe's own kernel-side
+        # quantizer is the right contract for the FP8 payload (E8M0 round-up).
+        from aiter.ops.flydsl.kernels.mega_moe.quant import per_1x32_mx_quant
+
+        w2_q, w2_scale = per_1x32_mx_quant(
+            w2.view(local_experts * model_dim, inter_dim), quant_mode="fp8"
+        )
+        w2_q = w2_q.view(local_experts, model_dim, inter_dim)
+    else:
+        w2_q, w2_scale = quantize(w2, quant_dtype=dtypes.fp4x2)
+        w2_q = w2_q.view(local_experts, model_dim, inter_dim // 2)
     w2_scale_ref = w2_scale.view(local_experts, model_dim, inter_dim // 32)
     del w2
-    w2_kernel = shuffle_weight_a16w4(w2_q, 16, False).contiguous()
+    w2_kernel = shuffle_weight_a16w4(
+        w2_q.view(torch.uint8) if g2_b_dtype.startswith("fp8") else w2_q, 16, False
+    ).contiguous()
     w2_scale_kernel = shuffle_scale_a16w4(w2_scale, local_experts, False).contiguous()
     torch.cuda.empty_cache()
     return (
@@ -130,8 +175,11 @@ def _quantize_weights(model_dim, inter_dim, local_experts, rank, seed, device):
     )
 
 
-def _dequant_expert(weight, scale, rows, cols):
-    values = fp4_utils.mxfp4_to_f32(weight).view(rows, cols)
+def _dequant_expert(weight, scale, rows, cols, dtype="fp4"):
+    if dtype == "fp8":
+        values = weight.view(torch.float8_e4m3fn).to(torch.float32).view(rows, cols)
+    else:
+        values = fp4_utils.mxfp4_to_f32(weight).view(rows, cols)
     scales = fp4_utils.e8m0_to_f32(scale).view(rows, cols // 32)
     return values * scales.repeat_interleave(32, dim=-1)
 
@@ -154,6 +202,7 @@ def _reference(
     inter_dim,
     experts,
     swiglu_limit,
+    g2_b_dtype="fp4",
 ):
     x_all, weights_all, ids_all = (
         _all_gather(x),
@@ -176,7 +225,9 @@ def _reference(
         w1 = _dequant_expert(
             w1_q[local_id], w1_scale[local_id], 2 * inter_dim, model_dim
         )
-        w2 = _dequant_expert(w2_q[local_id], w2_scale[local_id], model_dim, inter_dim)
+        w2 = _dequant_expert(
+            w2_q[local_id], w2_scale[local_id], model_dim, inter_dim, dtype=g2_b_dtype
+        )
         inp = x_all[rows].float()
         gate = (inp @ w1[:inter_dim].T).clamp(max=swiglu_limit)
         up = (inp @ w1[inter_dim:].T).clamp(-swiglu_limit, swiglu_limit)
@@ -231,6 +282,7 @@ def _run_size(moe, x, weights, ids, ref_weights, args, rank, world, device):
             moe.inter_dim,
             moe.experts,
             moe.swiglu_limit,
+            g2_b_dtype=getattr(moe, "g2_b_dtype", "fp4"),
         )
         rel_l2 = float(
             torch.linalg.vector_norm(output.float() - reference)
@@ -331,6 +383,12 @@ def main():
     parser.add_argument("--bs-list", default="128")
     parser.add_argument("--iters", type=int, default=30)
     parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument(
+        "--g2-b-dtype",
+        choices=("fp4", "fp8", "fp8eq"),
+        default="fp4",
+        help="GEMM2 B-operand dtype; fp8 is the MiniMax-M3 Phase-1 path",
+    )
     parser.add_argument("--accuracy-max-bs", type=int, default=128)
     parser.add_argument("--rtol", type=float, default=0.10)
     parser.add_argument("--max-tok-per-rank", type=int)
@@ -372,6 +430,7 @@ def main():
             rank,
             args.seed,
             device,
+            g2_b_dtype=args.g2_b_dtype,
         )
         w1, w1_scale, w2, w2_scale, w1_q, w1_ref_scale, w2_q, w2_ref_scale = packed
         if rank_tokens and len(rank_tokens) != world:
@@ -396,6 +455,7 @@ def main():
                 rank=rank,
                 world_size=world,
                 quant="a8w4",
+                g2_b_dtype="fp8" if args.g2_b_dtype.startswith("fp8") else "fp4",
                 w1=w1,
                 w1_scale=w1_scale,
                 w2=w2,
