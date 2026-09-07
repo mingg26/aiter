@@ -9,6 +9,7 @@ import flydsl.expr as fx
 import torch
 from flydsl.expr import const_expr, range_constexpr, rocdl
 from flydsl.expr.typing import Vector as Vec
+from flydsl.expr.typing import T
 
 from ..tensor_shim import _run_compiled
 from .gemm_util import (
@@ -28,15 +29,29 @@ from .gemm_util import (
 
 
 class _LdsF32View:
-    def __init__(self, ptr):
+    def __init__(self, ptr, pong=None, half_elements=0):
         self.ptr = ptr
+        self.pong = pong
+        self.half_elements = half_elements
+
+    def at(self, idx, upper=False):
+        if const_expr(self.pong is not None and upper):
+            return fx.add_offset(self.pong, fx.make_int_tuple(idx - fx.Int32(self.half_elements)))
+        return fx.add_offset(self.ptr, fx.make_int_tuple(idx))
+
+
+class _SplitABuffer:
+    def __init__(self, ping, pong):
+        self.ptr = ping.ptr
+        self.ping = ping
+        self.pong = pong
 
 
 # fmt: off
 @flyc.jit
 def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_scale, a_scale, mfma, epi, a_buf,
     a_scale_lds, a_lds_i32, K_ITERS, M_REPEAT, NUM_ACC_N, A_K_STEP_BYTES, pipe_weights,
-    mfma_amajor, async_a_copy, trb_rsrc):
+    mfma_amajor, async_a_copy, trb_rsrc, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, scalar_tile_row_base=False):
 # fmt: on
     N_ACC = M_REPEAT * NUM_ACC_N
     NUM_B_SCALE = NUM_ACC_N // _PACK
@@ -47,6 +62,10 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
     SB_STATE_END = B_STATE_END + NUM_B_SCALE
     last = fx.Int32(K_ITERS - 1)
     tile_row_base = _buffer_load(trb_rsrc, m_tile, fx.Int32)
+    if const_expr(scalar_tile_row_base):
+        # Every active lane executes the same scheduled M tile. Keep its buffer
+        # base scalar so direct-to-LDS loads need no descriptor waterfall.
+        tile_row_base = fx.Int32(rocdl.readfirstlane(T.i32, tile_row_base.ir_value()))
     b_row = sched.gate_base_row(expert) + n_tile_base
     a_gather.for_tile(tile_row_base)
     if const_expr(pipe_weights):
@@ -76,7 +95,50 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
                 a_scale_lds,
                 fx.Int32(0),
             )
-        for sp_i, state in range(0, K_ITERS - 1, 1, init=init):
+        if const_expr(unroll_a_pingpong):
+            assert async_a_copy and mfma_amajor and K_ITERS % 2 == 0
+
+            @flyc.jit
+            def fixed_step(values, step: fx.Int32, phase):
+                accum = [Vec(v) for v in values[:N_ACC]]
+                weights = [[Vec(values[N_ACC + ni * _PACK + ks]) for ks in range(_PACK)]
+                           for ni in range(NUM_ACC_N)]
+                sb_cur = [fx.Int32(values[B_STATE_END + g]) for g in range_constexpr(NUM_B_SCALE)]
+                sa_cur = [fx.Int32(values[SB_STATE_END + g]) for g in range_constexpr(NUM_A_SCALE)]
+                next_step = step + fx.Int32(1)
+                rocdl.sched_barrier(0)
+                a_gather.prefetch_to_lds(next_step * fx.Int32(A_K_STEP_BYTES),
+                                         (a_buf.pong if phase == 0 else a_buf.ping) if split_a_lds else a_buf,
+                                         fx.Int32(0 if split_a_lds else (1 - phase) * a_lds_i32))
+                rocdl.sched_barrier(0)
+                sb_next = b_scale.load_step(b_row, next_step)
+                sa_next = a_scale.load_step(a_scale_lds, next_step)
+
+                def fixed_a_load(mi, ks):
+                    return a_s2r.load_operand(
+                        (a_buf.ping if phase == 0 else a_buf.pong) if split_a_lds else a_buf,
+                        mi, ks, fx.Int32(0 if split_a_lds else phase * a_lds_i32))
+
+                def next_b(ni):
+                    return b_loader.load_ni(b_row, ni, next_step)
+
+                accum, weights_next = mfma.call_pipe_am(fixed_a_load, weights, accum, sa_cur, sb_cur, next_b)
+                # FP8 packs use TWO buffer_load_dwordx4 instructions each.
+                # All next-B/scale loads follow the four A DMA instructions
+                # (sched_barrier above); preserve those newer VMEM operations
+                # while waiting for A before the WG barrier. The default-off
+                # experiment is restricted to the ISA-audited split-LDS shape.
+                wait_lds_barrier(NUM_ACC_N * _PACK * (2 if fp8_b_waitcnt else 1) + NUM_B_SCALE)
+                return list(accum) + [v for row in weights_next for v in row] + sb_next + sa_next
+
+            for pair, values in range(0, K_ITERS - 2, 2, init=init):
+                first = fixed_step(values, fx.Int32(pair), 0)
+                second = fixed_step(first, fx.Int32(pair) + fx.Int32(1), 1)
+                values = yield second
+            # The final prefetch is even -> odd; the existing final step consumes it.
+            init = fixed_step(values, fx.Int32(K_ITERS - 2), 0)
+        loop_steps = const_expr(0 if unroll_a_pingpong else K_ITERS - 1)
+        for sp_i, state in range(0, loop_steps, 1, init=init):
             sp = fx.Int32(sp_i)
             acc = [Vec(a) for a in state[:N_ACC]]
             b_prev = [
@@ -170,7 +232,8 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
         final_off = (last & fx.Int32(1)) * fx.Int32(a_lds_i32)
 
         def final_a_load(mi, ks, _base=final_off):
-            return a_s2r.load_operand(a_buf, mi, ks, _base)
+            return a_s2r.load_operand(a_buf.pong if split_a_lds else a_buf, mi, ks,
+                                     fx.Int32(0) if split_a_lds else _base)
 
         if const_expr(async_a_copy):
             sb = [
@@ -271,7 +334,7 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
     model_dim, inter_dim, sort_block_m, tile_n, num_waves, n_per_wave, wave_id,
     m_repeat, num_acc_n, a_k_step_bytes, total_threads, k_iters, a_lds_i32, n_tiles,
     expert_offset, b_cache_modifier, swizzle_a, pipe_weights, mfma_amajor, async_a_copy,
-    use_tile_resource, band_m=1, swiglu_limit=0.0, swiglu_alpha=1.702, swiglu_beta=1.0):
+    use_tile_resource, band_m=1, swiglu_limit=0.0, swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False):
     # fmt: on
     """Build the GEMM1 atoms and return its expert resolver and tile runner."""
     sched = TileScheduler(
@@ -295,13 +358,14 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
     )
     b_scale = BScaleLoader(scale_rsrc=sw_rsrc, num_acc_n=num_acc_n, model_dim=model_dim)
     a_scale = AScaleLoader(
+        packed_lds=packed_a_scale,
         scale_rsrc=sx_rsrc,
         m_repeat=m_repeat,
         model_dim=model_dim,
         sort_block_m=sort_block_m,
         total_threads=total_threads,
     )
-    mfma = MfmaScaleGU(m_repeat=m_repeat, num_acc_n=num_acc_n)
+    mfma = MfmaScaleGU(m_repeat=m_repeat, num_acc_n=num_acc_n, prefetch_a_operand=prefetch_a_operand)
     # fmt: off
     epi = SiluQuantEpilogue(out_rsrc=out_rsrc, out_scale_rsrc=os_rsrc, sorted_rsrc=trb_rsrc, tokens=0,
         inter_dim=inter_dim, m_repeat=m_repeat, num_acc_n=num_acc_n, sort_block_m=sort_block_m, tile_n=tile_n,
@@ -363,7 +427,7 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
             a_s2r, b_loader, b_scale, a_scale, mfma, epi, a_buf,
             a_scale_lds, a_lds_i32, k_iters, m_repeat, num_acc_n,
             a_k_step_bytes, pipe_weights, mfma_amajor, async_a_copy,
-            trb_rsrc)
+            trb_rsrc, unroll_a_pingpong, split_a_lds, fp8_b_waitcnt, scalar_tile_row_base)
         # fmt: on
 
     return expert_of_flat, m_tile_of_flat, do_scheduled_tile

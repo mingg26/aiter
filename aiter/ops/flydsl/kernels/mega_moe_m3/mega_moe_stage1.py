@@ -8,6 +8,7 @@ import flydsl.compiler as flyc
 import flydsl.expr as fx
 import mori.ir.flydsl as mori_shmem
 from flydsl.expr import const_expr, range_constexpr
+from flydsl._mlir.dialects import llvm
 from flydsl.expr.typing import T
 from flydsl.expr.typing import Vector as Vec
 from flydsl.runtime.device import get_rocm_arch
@@ -22,7 +23,7 @@ from .dispatch import (
     emit_dispatch_payload,
     emit_dispatch_plan,
 )
-from .gemm1 import _LdsF32View, build_fused_gemm1
+from .gemm1 import _LdsF32View, _SplitABuffer, build_fused_gemm1
 from .gemm_util import _buffer_load, _buffer_store, _make_buffer, _make_buffer_from_addr
 
 _SC0_CACHE = 1
@@ -78,6 +79,13 @@ def compile_mega_moe_stage1(
     work_shards: int | None = None, external_grouping: bool | None = None,
     external_counting: bool | None = None, payload_chunk_rows: int = 0, payload_tile_ready: bool = False,
     band_m: int = 1, swiglu_limit: float = 7.0, swiglu_alpha: float = 1.702, swiglu_beta: float = 1.0,
+    packed_a_scale: bool = False,
+    unroll_a_pingpong: bool = False,
+    split_a_lds: bool = False,
+    fp8_b_waitcnt: bool = False,
+    scalar_tile_row_base: bool = False,
+    prefetch_a_operand: bool = False,
+    xcd_schedule: bool = False, schedule_audit: bool = False,
 ):
     arch = str(get_rocm_arch() or "")
     if not arch.startswith("gfx95"):
@@ -125,6 +133,11 @@ def compile_mega_moe_stage1(
     if work_shards is not None:
         WORK_SHARDS = int(work_shards)
     assert WORK_SHARDS in (1, 2, 4, 8)
+    if xcd_schedule:
+        assert WORK_SHARDS == 8 and N_TILES % 8 == 0
+        assert payload_tile_ready and BAND_M > 1
+    if schedule_audit:
+        assert sort_block_m == 128 and tile_n == 256
 
     a_lds_size = sort_block_m * A_K_STEP_BYTES
     a_lds_i32 = a_lds_size // 4
@@ -132,6 +145,14 @@ def compile_mega_moe_stage1(
     cs_size = sort_block_m * cs_tile_n
     lds_pool_bytes = max(2 * a_lds_size, cs_size * 4)
     n_scale_bytes = sort_block_m * (model_dim // 32)
+    if prefetch_a_operand:
+        assert split_a_lds and unroll_a_pingpong and mfma_amajor
+    if fp8_b_waitcnt:
+        assert split_a_lds, "FP8 wait-count experiment requires audited split-LDS shape"
+    if split_a_lds:
+        assert unroll_a_pingpong and async_a_copy and mfma_amajor and pipe_weights
+        assert (sort_block_m, tile_n, tile_k, num_waves) == (128, 256, 256, 8)
+        assert K_ITERS % 2 == 0 and lds_pool_bytes == 2 * a_lds_size
 
     fz_npes, fz_epr, fz_k = int(fuse_npes), int(experts_per_rank), int(fuse_topk)
     fz_cap, fz_mtpr, fz_rank = int(fuse_cap), int(fuse_mtpr), int(rank)
@@ -168,6 +189,12 @@ def compile_mega_moe_stage1(
         pool: fx.Array[fx.Int8, lds_pool_bytes, 16]
         A_scale: fx.Array[fx.Int8, n_scale_bytes, 16]
 
+    @fx.struct
+    class SplitSharedStorage:
+        ping: fx.Array[fx.Int8, a_lds_size, 16]
+        pong: fx.Array[fx.Int8, a_lds_size, 16]
+        A_scale: fx.Array[fx.Int8, n_scale_bytes, 16]
+
     dispatch_path = "fixedslot" if fixed_slot_dispatch else "compact"
     swiglu_suffix = "" if swiglu_limit <= 0 else f"_sl{str(float(swiglu_limit)).replace('.', 'p')}"
     swiglu_suffix += (
@@ -183,6 +210,14 @@ def compile_mega_moe_stage1(
         f"_pc{payload_chunk_rows}"
         f"_ptr{int(payload_tile_ready)}_bm{BAND_M}"
         f"{swiglu_suffix}"
+        + ("_pas1" if packed_a_scale else "")
+        + ("_upp1" if unroll_a_pingpong else "")
+        + ("_sal1" if split_a_lds else "")
+        + ("_bwc1" if fp8_b_waitcnt else "")
+        + ("_aop1" if prefetch_a_operand else "")
+        + ("_trbu1" if scalar_tile_row_base else "")
+        + ("_xq1" if xcd_schedule else "")
+        + ("_qa1" if schedule_audit else "")
     )
 
     @flyc.kernel(name=kernel_name, known_block_size=[TOTAL_THREADS, 1, 1])
@@ -194,10 +229,15 @@ def compile_mega_moe_stage1(
         addr_expected: fx.Int64,
     ):
         tid = fx.thread_idx.x
-        lds = fx.SharedAllocator().allocate(SharedStorage).peek()
-        a_buf = lds.pool
+        lds = fx.SharedAllocator().allocate(SplitSharedStorage if split_a_lds else SharedStorage).peek()
+        if const_expr(split_a_lds):
+            a_buf = _SplitABuffer(lds.ping, lds.pong)
+            c_tile = _LdsF32View(fx.recast_iter(fx.Float32, lds.ping.ptr),
+                                 fx.recast_iter(fx.Float32, lds.pong.ptr), a_lds_i32)
+        else:
+            a_buf = lds.pool
+            c_tile = _LdsF32View(fx.recast_iter(fx.Float32, lds.pool.ptr))
         a_scale_lds = lds.A_scale
-        c_tile = _LdsF32View(fx.recast_iter(fx.Float32, lds.pool.ptr))
         disp_rsrc = _make_buffer_from_addr(addr_disp, fx.Int64)
         parity_rsrc = _make_buffer_from_addr(addr_parity, fx.Int32)
         expected_rsrc = _make_buffer_from_addr(addr_expected, fx.Int32)
@@ -402,6 +442,12 @@ def compile_mega_moe_stage1(
             swizzle_a=swizzle_a, pipe_weights=pipe_weights, mfma_amajor=mfma_amajor,
             async_a_copy=async_a_copy, use_tile_resource=use_tile_resource,
             band_m=BAND_M,
+            packed_a_scale=packed_a_scale,
+            unroll_a_pingpong=unroll_a_pingpong,
+            split_a_lds=split_a_lds,
+            fp8_b_waitcnt=fp8_b_waitcnt,
+            prefetch_a_operand=prefetch_a_operand,
+            scalar_tile_row_base=scalar_tile_row_base,
             swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
         )
 
@@ -446,14 +492,33 @@ def compile_mega_moe_stage1(
         work_scratch = fx.recast_iter(fx.Int32, a_buf.ptr)
         work_scratch_view = fx.make_view(work_scratch, fx.make_layout(1, 1))
         work_shard = ticket & fx.Int32(WORK_SHARDS - 1)
+        if const_expr(xcd_schedule or schedule_audit):
+            physical_xcd = fx.Int32(llvm.inline_asm(
+                T.i32, [], "s_getreg_b32 $0, hwreg(HW_REG_XCC_ID, 0, 4)",
+                "=s", has_side_effects=True))
+        if const_expr(xcd_schedule):
+            # XCD is a locality hint only. Every CTA eventually visits all
+            # queues, so sparse placement/migration cannot leave work undone.
+            home_queue = physical_xcd & fx.Int32(7)
+        queue_attempt = fx.Int32(0)
         while consumer_active:
+            if const_expr(xcd_schedule):
+                work_shard = (home_queue + queue_attempt) & fx.Int32(7)
             if tid == fx.Int32(0):
                 local_work = fx.Int32(
                     comm_ops.atomic_add_agent(
                         a_work_head + fx.Int64(work_shard) * fx.Int64(64), fx.Int32(1)
                     )
                 )
-                work = work_shard + local_work * fx.Int32(WORK_SHARDS)
+                if const_expr(xcd_schedule):
+                    # Each XCD owns three N panels in the H6144/I3072 case.
+                    # Within a ready M band, adjacent claims reuse the B panel.
+                    local_band = local_work // fx.Int32(BAND_M * (N_TILES // 8))
+                    local_rem = local_work % fx.Int32(BAND_M * (N_TILES // 8))
+                    n_tile = (local_rem // fx.Int32(BAND_M)) * fx.Int32(8) + work_shard
+                    work = local_band * fx.Int32(BAND_M * N_TILES) + n_tile * fx.Int32(BAND_M) + local_rem % fx.Int32(BAND_M)
+                else:
+                    work = work_shard + local_work * fx.Int32(WORK_SHARDS)
                 fx.ptr_store(Vec.from_elements([work], fx.Int32), work_scratch)
             fx.barrier()
             work = Vec(work_scratch_view.load())[0]
@@ -480,8 +545,22 @@ def compile_mega_moe_stage1(
             if (flags & fx.Int32(2)) != fx.Int32(0):
                 if const_expr(not direct_fixed_slot):
                     comm_ops.fence_system_acquire()
+                if const_expr(schedule_audit):
+                    if tid == fx.Int32(0):
+                        audit_m = _m_tile_of_flat(work)
+                        audit_n = (work % fx.Int32(BAND_M * N_TILES)) // fx.Int32(BAND_M)
+                        audit_index = (audit_m * fx.Int32(N_TILES) + audit_n) * fx.Int32(3)
+                        audit_addr = _disp_ptr(DispatchSlot.SCHEDULE_AUDIT)
+                        comm_ops.atomic_add_agent(audit_addr + fx.Int64(audit_index) * fx.Int64(4), fx.Int32(1))
+                        audit_rsrc = _make_buffer_from_addr(audit_addr, fx.Int32)
+                        _buffer_store(audit_rsrc, audit_index + fx.Int32(1), physical_xcd + fx.Int32(1), fx.Int32)
+                        _buffer_store(audit_rsrc, audit_index + fx.Int32(2), work_shard + fx.Int32(1), fx.Int32)
                 _do_scheduled_tile(work)
-            consumer_active = (flags & fx.Int32(1)) != fx.Int32(0)
+            if const_expr(xcd_schedule):
+                queue_attempt = queue_attempt + ((flags & fx.Int32(1)) == fx.Int32(0)).select(fx.Int32(1), fx.Int32(0))
+                consumer_active = queue_attempt < fx.Int32(8)
+            else:
+                consumer_active = (flags & fx.Int32(1)) != fx.Int32(0)
 
     @flyc.jit
     def launch(
@@ -512,7 +591,7 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
     use_tile_resource=True, waves_per_eu_hint=2,
     b_nt=-1, work_shards=None, external_grouping=None, external_counting=None,
     payload_chunk_rows=0, payload_tile_ready=False, band_m=1, swiglu_limit=0.0,
-    swiglu_alpha=1.702, swiglu_beta=1.0):
+    swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, xcd_schedule=False, schedule_audit=False):
     launch = compile_mega_moe_stage1(
         model_dim=model_dim, inter_dim=inter_dim, rank=rank, experts_per_rank=experts_per_rank,
         fuse_npes=fuse_npes, fuse_topk=fuse_topk, fuse_cap=fuse_cap, fuse_mtpr=fuse_mtpr,
@@ -524,6 +603,13 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
         b_nt=b_nt, work_shards=work_shards, external_grouping=external_grouping,
         external_counting=external_counting, payload_chunk_rows=payload_chunk_rows,
         payload_tile_ready=payload_tile_ready, band_m=band_m,
+        packed_a_scale=packed_a_scale,
+        unroll_a_pingpong=unroll_a_pingpong,
+        split_a_lds=split_a_lds,
+        fp8_b_waitcnt=fp8_b_waitcnt,
+        prefetch_a_operand=prefetch_a_operand,
+        scalar_tile_row_base=scalar_tile_row_base,
+        xcd_schedule=xcd_schedule, schedule_audit=schedule_audit,
         swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
     )
     _run_compiled(

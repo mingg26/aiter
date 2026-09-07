@@ -51,6 +51,14 @@ class Stage1Config:
     external_counting: bool = False
     payload_chunk_rows: int = 0
     payload_tile_ready: bool = False
+    packed_a_scale: bool = False
+    unroll_a_pingpong: bool = False
+    split_a_lds: bool = False
+    fp8_b_waitcnt: bool = False
+    scalar_tile_row_base: bool = False
+    prefetch_a_operand: bool = False
+    xcd_schedule: bool = False
+    schedule_audit: bool = False
     # m_tiles per GEMM1 reuse band; 1 = upstream's n_tile-fast order. See
     # build_fused_gemm1._decode in gemm1.py.
     band_m: int = 1

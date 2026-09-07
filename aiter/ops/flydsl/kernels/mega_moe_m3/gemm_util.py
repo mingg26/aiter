@@ -340,7 +340,7 @@ class BScaleLoader:
 class AScaleLoader:
     """Per-1x32 E8M0 A scales STAGED to LDS once per tile (stage), read via ds_read in K-loop (kills VMEM flood)."""
 
-    def __init__(self, *, scale_rsrc, m_repeat, model_dim, sort_block_m, total_threads):
+    def __init__(self, *, scale_rsrc, m_repeat, model_dim, sort_block_m, total_threads, packed_lds=False):
         self._rsrc = scale_rsrc
         self._n_scale = model_dim // 32
         self._lane = fx.thread_idx.x % 64
@@ -348,9 +348,43 @@ class AScaleLoader:
         self._sort_block_m = sort_block_m
         self._total_threads = total_threads
         self._tx = fx.thread_idx.x
+        self._packed_lds = packed_lds
+
+    def _stage_packed(self, lds, tile_row_base):
+        # Same 24 KiB at M128/H6144: [K256 step, M32 group, lane64] i32.
+        # Each worker reads two rows x 16 scales, producing eight packed words.
+        # The incoming buffer view uses 16-byte groups, as in raw staging.
+        assert self._n_scale % 16 == 0
+        count = self._sort_block_m * self._n_scale // 32
+        @flyc.jit
+        def copy_item(item: fx.Int32):
+            if item < fx.Int32(count):
+                r = item % fx.Int32(16)
+                group = (item // fx.Int32(16)) % fx.Int32(self._n_groups)
+                pair_step = item // fx.Int32(16 * self._n_groups)
+                row = tile_row_base + group * fx.Int32(32) + r
+                offset = row * fx.Int32(self._n_scale) + pair_step * fx.Int32(16)
+                a = _buffer_load(self._rsrc, offset // fx.Int32(16), fx.Int32, 4)
+                b = _buffer_load(self._rsrc, (offset + fx.Int32(16 * self._n_scale)) // fx.Int32(16), fx.Int32, 4)
+                for half in range_constexpr(2):
+                    step = pair_step * fx.Int32(2) + fx.Int32(half)
+                    for klane in range_constexpr(4):
+                        shift = fx.Int32(klane * 8)
+                        mask = fx.Int32(255)
+                        packed = ((a[half * 2] >> shift) & mask) | (((b[half * 2] >> shift) & mask) << fx.Int32(8))
+                        packed = packed | (((a[half * 2 + 1] >> shift) & mask) << fx.Int32(16)) | (((b[half * 2 + 1] >> shift) & mask) << fx.Int32(24))
+                        index = (step * fx.Int32(self._n_groups) + group) * fx.Int32(64) + r + fx.Int32(klane * 16)
+                        ptr = fx.add_offset(fx.recast_iter(fx.Int32, lds.ptr), index)
+                        fx.ptr_store(Vec.from_elements([packed], fx.Int32), ptr)
+
+        for c in range_constexpr(0, count, self._total_threads):
+            copy_item(fx.Int32(c) + self._tx)
 
     def stage(self, lds_ascale, tile_row_base_i32):
         """Coalesced gmem->LDS copy of this tile's e8m0 A-scale block [sort_block_m, n_scale]. Call before K-loop."""
+        if const_expr(self._packed_lds):
+            self._stage_packed(lds_ascale, tile_row_base_i32)
+            return
         total = self._sort_block_m * self._n_scale
         assert total % 16 == 0, "A-scale tile must contain whole 16-byte copy chunks"
         base = tile_row_base_i32 * fx.Int32(self._n_scale)
@@ -384,6 +418,13 @@ class AScaleLoader:
 
     def load_step(self, lds_ascale, kstep_i32):
         """One packed i32 per pack-group, read from the LDS-staged A-scale (ds_read)."""
+        if const_expr(self._packed_lds):
+            out = []
+            for g in range_constexpr(self._n_groups):
+                index = (kstep_i32 * fx.Int32(self._n_groups) + fx.Int32(g)) * fx.Int32(64) + self._lane
+                ptr = fx.add_offset(fx.recast_iter(fx.Int32, lds_ascale.ptr), index)
+                out.append(Vec(fx.make_view(ptr, fx.make_layout(1, 1)).load(), dtype=fx.Int32)[0])
+            return out
         lane_row = fx.Int32(self._lane % 16)
         col0 = kstep_i32 * fx.Int32(8) + fx.Int32(
             self._lane // 16
@@ -422,7 +463,8 @@ class MfmaScaleGU:
     # A lane feeds 32 B elements = 32B = i32x8. opsel keeps its 0..3 range.
     _B_NDW = 8
 
-    def __init__(self, *, m_repeat, num_acc_n):
+    def __init__(self, *, m_repeat, num_acc_n, prefetch_a_operand=False):
+        self._prefetch_a_operand = prefetch_a_operand
         self._m_repeat = m_repeat
         self._num_acc_n = num_acc_n
         self._b_ndw = self._B_NDW
@@ -519,11 +561,22 @@ class MfmaScaleGU:
         ngrp = self._m_repeat * _PACK
         g = 0
         nb = 0
+        if const_expr(self._prefetch_a_operand):
+            pending_a = a_load(0, 0)
+            rocdl.sched_barrier(0x16)
         for mi in range_constexpr(self._m_repeat):
             ia = mi % _PACK
             sa_v = sa[mi // _PACK]
             for ksub in range_constexpr(_PACK):
-                a_op = a_load(mi, ksub)
+                if const_expr(self._prefetch_a_operand):
+                    a_op = pending_a
+                    if const_expr(g + 1 < ngrp):
+                        pending_a = a_load((g + 1) // _PACK, (g + 1) % _PACK)
+                        # Permit VALU/SALU/VMEM (0x2|0x4|0x10) to cross,
+                        # but keep next-A DS reads before current MFMAs.
+                        rocdl.sched_barrier(0x16)
+                else:
+                    a_op = a_load(mi, ksub)
                 tgt = ((g + 1) * nn) // ngrp
                 while nb < tgt:
                     b_next[nb] = load_next(nb)
@@ -540,6 +593,8 @@ class MfmaScaleGU:
                         ia,
                         ni % _PACK,
                     )
+                if const_expr(self._prefetch_a_operand):
+                    rocdl.sched_barrier(0x16)
                 g += 1
         while nb < nn:
             b_next[nb] = load_next(nb)
@@ -548,11 +603,21 @@ class MfmaScaleGU:
 
     def call_pipe_am_final(self, a_load, b_prev, acc, sa, sb):
         """Consume the final prefetched B step without redundant loads."""
+        if const_expr(self._prefetch_a_operand):
+            pending_a = a_load(0, 0)
+            rocdl.sched_barrier(0x16)
         for mi in range_constexpr(self._m_repeat):
             ia = mi % _PACK
             sa_v = sa[mi // _PACK]
             for ksub in range_constexpr(_PACK):
-                a_op = a_load(mi, ksub)
+                if const_expr(self._prefetch_a_operand):
+                    a_op = pending_a
+                    next_g = mi * _PACK + ksub + 1
+                    if const_expr(next_g < self._m_repeat * _PACK):
+                        pending_a = a_load(next_g // _PACK, next_g % _PACK)
+                        rocdl.sched_barrier(0x16)
+                else:
+                    a_op = a_load(mi, ksub)
                 for ni in range_constexpr(self._num_acc_n):
                     aidx = self.idx(mi, ni)
                     acc[aidx] = self._mfma(
@@ -565,6 +630,8 @@ class MfmaScaleGU:
                         ia,
                         ni % _PACK,
                     )
+                if const_expr(self._prefetch_a_operand):
+                    rocdl.sched_barrier(0x16)
         return acc
 
 
@@ -574,7 +641,7 @@ class SiluQuantEpilogue:
     # fmt: off
     def __init__(self, *, out_rsrc, out_scale_rsrc, sorted_rsrc, tokens, inter_dim, m_repeat, num_acc_n,
         sort_block_m, tile_n, num_waves, lds_out, swiglu_limit=0.0, swiglu_alpha=1.0, swiglu_beta=0.0,
-        always_valid=False, out_tensor=None):
+        always_valid=False, out_tensor=None, waves_along_m=False):
     # fmt: on
         self._out_rsrc = out_rsrc
         self._out_scale_rsrc = out_scale_rsrc
@@ -595,6 +662,7 @@ class SiluQuantEpilogue:
         self._swiglu_beta = float(swiglu_beta)
         self._always_valid = always_valid
         self._out_tensor = out_tensor
+        self._waves_along_m = waves_along_m
         self._lane = fx.thread_idx.x % 64
         self._sorted_scale_cols_i32 = (inter_dim // 32 + 7) // 8 * 8
 
@@ -657,7 +725,8 @@ class SiluQuantEpilogue:
         ld4 = (lane // fx.Int32(16)) * fx.Int32(4)
         cs_tile_n = self._tile_n // 2
         nwo = cs_tile_n // self._num_waves
-        cbase = wave * fx.Int32(nwo)
+        cbase = fx.Int32(0) if self._waves_along_m else wave * fx.Int32(nwo)
+        rbase = wave * fx.Int32(self._m_repeat * 16) if self._waves_along_m else fx.Int32(0)
         cptr = self._lds_out.ptr
 
         for mi in range_constexpr(self._m_repeat):
@@ -665,9 +734,9 @@ class SiluQuantEpilogue:
                 v4 = Vec(combined[mi * n_per + nj])
                 col = cbase + fx.Int32(nj * 16) + l16
                 for ii in range_constexpr(4):
-                    row = fx.Int32(mi * 16) + ld4 + fx.Int32(ii)
+                    row = rbase + fx.Int32(mi * 16) + ld4 + fx.Int32(ii)
                     idx = row * fx.Int32(cs_tile_n) + col
-                    ptr = fx.add_offset(cptr, fx.make_int_tuple(idx))
+                    ptr = self._lds_out.at(idx, mi >= self._m_repeat // 2)
                     fx.ptr_store(Vec.from_elements([v4[ii]], fx.Float32), ptr)
         gpu.barrier()
 
@@ -700,7 +769,7 @@ class SiluQuantEpilogue:
             for nr in range_constexpr(n_reps):
                 col0 = fx.Int32(nr * NLANE * EVEC) + nlane * fx.Int32(EVEC)
                 idx = row * fx.Int32(cs_tile_n) + col0
-                f32_iter = fx.recast_iter(fx.Float32, fx.add_offset(cptr, fx.make_int_tuple(idx)))
+                f32_iter = fx.recast_iter(fx.Float32, self._lds_out.at(idx, mr >= m_reps // 2))
                 frag = fx.make_view(f32_iter, fx.make_layout(EVEC, 1)).load()
                 v0 = frag[0]
                 v1 = frag[1]

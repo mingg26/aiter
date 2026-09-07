@@ -179,6 +179,8 @@ class MegaMoEM3:
         table[DispatchSlot.EPOCH_GATE] = workspace["epoch_gate"].data_ptr()
         table[DispatchSlot.PAIR_ORDER_READY] = workspace["pair_order_ready"].data_ptr()
         table[DispatchSlot.WORK_HEAD] = workspace["work_head"].data_ptr()
+        if "schedule_audit" in workspace:
+            table[DispatchSlot.SCHEDULE_AUDIT] = workspace["schedule_audit"].data_ptr()
         table[DispatchSlot.WORK_TAIL] = workspace["work_tail"].data_ptr()
         table[DispatchSlot.EXPERT_TILE_END] = workspace["expert_tile_end"].data_ptr()
         table[DispatchSlot.GROUP_DONE] = workspace["group_done"].data_ptr()
@@ -256,6 +258,13 @@ class MegaMoEM3:
             work_shards=config.work_shards, external_grouping=config.external_grouping,
             external_counting=config.external_counting, payload_chunk_rows=config.payload_chunk_rows,
             payload_tile_ready=config.payload_tile_ready, band_m=config.band_m,
+            packed_a_scale=config.packed_a_scale,
+            unroll_a_pingpong=config.unroll_a_pingpong,
+            split_a_lds=config.split_a_lds,
+            fp8_b_waitcnt=config.fp8_b_waitcnt,
+            prefetch_a_operand=config.prefetch_a_operand,
+            scalar_tile_row_base=config.scalar_tile_row_base,
+            xcd_schedule=config.xcd_schedule, schedule_audit=config.schedule_audit,
             swiglu_limit=self.swiglu_limit, swiglu_alpha=self.swiglu_alpha,
             swiglu_beta=self.swiglu_beta)
         # fmt: on
