@@ -19,19 +19,18 @@ from .mega_moe_config import (
 )
 from .quant import per_1x32_mx_quant
 
-__all__ = ["MegaMoEV2"]
+__all__ = ["MegaMoEM3"]
 
 
-class MegaMoEV2:
+class MegaMoEM3:
     """Fused dispatch, GEMM1, GEMM2, and combine with one in-flight launch per instance."""
 
     # fmt: off
     def __init__(self, *, rank: int, world_size: int, model_dim: int, inter_dim: int, experts: int, topk: int,
-        quant: str, w1: torch.Tensor, w1_scale: torch.Tensor, w2: torch.Tensor, w2_scale: torch.Tensor,
-        max_tok_per_rank: int, mega_scheme: str = "fixedslot", swiglu_limit: float = 0.0):
+        w1: torch.Tensor, w1_scale: torch.Tensor, w2: torch.Tensor, w2_scale: torch.Tensor,
+        max_tok_per_rank: int, mega_scheme: str = "fixedslot", swiglu_limit: float = 7.0,
+        swiglu_alpha: float = 1.702, swiglu_beta: float = 1.0):
     # fmt: on
-        if quant != "a8w4":
-            raise ValueError("MegaMoEV2 currently supports quant='a8w4' only")
         if experts % world_size != 0:
             raise ValueError(f"experts={experts} must be divisible by world_size={world_size}")
         if max_tok_per_rank <= 0 or max_tok_per_rank & (max_tok_per_rank - 1):
@@ -44,7 +43,12 @@ class MegaMoEV2:
         self.epr = int(experts // world_size)
         self.topk = int(topk)
         self.mtpr = int(max_tok_per_rank)
+        self.quant = "a8w8"
         self.swiglu_limit = float(swiglu_limit)
+        # SwiGLU-OAI constants; MiniMax-M3 uses alpha=1.702, beta=1.0. Note the
+        # gate is clamped on the UPPER side only, the up projection on both.
+        self.swiglu_alpha = float(swiglu_alpha)
+        self.swiglu_beta = float(swiglu_beta)
         if self.swiglu_limit < 0:
             raise ValueError("swiglu_limit must be non-negative")
         self.dev = torch.device("cuda", rank)
@@ -252,13 +256,14 @@ class MegaMoEV2:
             work_shards=config.work_shards, external_grouping=config.external_grouping,
             external_counting=config.external_counting, payload_chunk_rows=config.payload_chunk_rows,
             payload_tile_ready=config.payload_tile_ready,
-            swiglu_limit=self.swiglu_limit)
+            swiglu_limit=self.swiglu_limit, swiglu_alpha=self.swiglu_alpha,
+            swiglu_beta=self.swiglu_beta)
         # fmt: on
         self._s1_active_tile_m = config.sort_block_m
         return self._s1_active_tile_m
 
     def quantize(self, x_bf16):
-        return per_1x32_mx_quant(x_bf16, quant_mode="fp8")
+        return per_1x32_mx_quant(x_bf16)
 
     def _run_joint(self, x, scales, wts, topk_ids, run_tokens, stream, slice_output):
         config = self._select_config(run_tokens)

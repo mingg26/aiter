@@ -258,8 +258,8 @@ def p2p_scatter_epilog(lds_acc_base, accm, n_block_idx, wave, lane, *, N_OUT, BM
             )
 
 
-def _stage2_lds_bytes(BM, BN, BK, a_dtype, aStages, g2_bf16_lds=False):
-    is_f8 = a_dtype == "fp8"
+def _stage2_lds_bytes(BM, BN, BK, aStages, g2_bf16_lds=False):
+    is_f8 = True  # A is FP8 E4M3
     KH_TILE_A = BK // (1 if is_f8 else 2)
     slot_bytes = BM * KH_TILE_A
     c_lds_bytes = BM * BN * (2 if g2_bf16_lds else 4)
@@ -269,7 +269,7 @@ def _stage2_lds_bytes(BM, BN, BK, a_dtype, aStages, g2_bf16_lds=False):
 # fmt: off
 def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, topk: int, rank: int, npes: int,
     max_tok: int, recv_cap: int | None = None, comb_inp_nbytes: int | None = None, BM: int = 32, BN: int = 256,
-    BK: int = 256, use_nt: bool = True, HIDDEN_MAX: int = 8192, INTER_MAX: int = 8192, a_dtype: str = "fp8",
+    BK: int = 256, use_nt: bool = True, HIDDEN_MAX: int = 8192, INTER_MAX: int = 8192,
     SBM: int | None = None,
     persist: bool = False, cu_num: int = 0, has_pad: bool = False, g2_bhoist=None, g2_ascale_pf=None,
     g2_spart=None, persist_strided: bool = False, g2_bf16_lds: bool = False, p2p_quant_type: str = "none",
@@ -291,8 +291,6 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         raise ValueError(f"unsupported p2p_quant_type={p2p_quant_type!r}")
     if p2p_quant_type == "fp8_blockwise_1x32" and g2_bf16_lds:
         raise ValueError("fp8_blockwise_1x32 requires f32 CShuffle input (g2_bf16_lds=False)")
-    if a_dtype not in ("fp4", "fp8"):
-        raise AssertionError(f"a_dtype must be 'fp4' or 'fp8', got {a_dtype!r}")
     if persist and cu_num <= 0:
         raise AssertionError(f"persist=True requires cu_num>0, got {cu_num}")
     if skew_cu and (not persist or not 0 < skew_cu < cu_num):
@@ -304,10 +302,10 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     g2_bhoist, g2_ascale_pf, g2_spart, g2_group_num, g2_m01, _g2_bf16_lds = _resolve_g2_knobs(
         g2_bhoist, g2_ascale_pf, g2_spart, False, False
     )
-    is_f8 = a_dtype == "fp8"
+    is_f8 = True  # A is FP8 E4M3
     aStages = kStages + 1
     KH_TILE_A = BK // (1 if is_f8 else 2)
-    compute_lds_bytes = _stage2_lds_bytes(BM, BN, BK, a_dtype, aStages, g2_bf16_lds)
+    compute_lds_bytes = _stage2_lds_bytes(BM, BN, BK, aStages, g2_bf16_lds)
     lds_packed_off = compute_lds_bytes
     lds_weight_off = lds_packed_off + BM * 4
     lds_peer_off = lds_weight_off + BM * 4
@@ -326,7 +324,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     dispatch_path = "fixedslot" if fixed_slot_dispatch else "compact"
     kernel_name = (
         f"megamoe_stage2_{dispatch_path}_t{BM}x{BN}x{BK}"
-        f"_sbm{SBM}_{a_dtype}_nt{int(use_nt)}"
+        f"_sbm{SBM}_a8w8_nt{int(use_nt)}"
         f"_p{int(persist)}cu{cu_num}s{int(persist_strided)}_pad{int(has_pad)}"
         f"_sk{skew_cu}"
         f"_bh{int(g2_bhoist)}apf{int(g2_ascale_pf)}sp{g2_group_num}x{g2_m01}"
@@ -410,7 +408,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
             accm_vecs, m_row, n_block_idx, _n_out_rt = gemm2_compute_v2(lds_base_i32, arg_ascale, arg_bq,
                 arg_bscale, arg_eids, arg_aq, i32_max_m_blocks, unit_bx, lane, wave, i32_inter, i32_hidden,
                 i32_kpad, i32_npad, BM=BM, BN=BN, BK=BK, use_nt=use_nt, INTER_MAX=INTER_MAX, aStages=aStages,
-                a_dtype=a_dtype, has_pad=has_pad, SBM=SBM, g2_bhoist=g2_bhoist, g2_ascale_pf=g2_ascale_pf,
+                has_pad=has_pad, SBM=SBM, g2_bhoist=g2_bhoist, g2_ascale_pf=g2_ascale_pf,
                 expert_offset=_expert_offset)
             p2p_scatter_epilog(lds_base_i32, accm_vecs, n_block_idx, wave, lane, N_OUT=N_OUT,
                 BM=BM, BN=BN, npes=npes, topk=topk,

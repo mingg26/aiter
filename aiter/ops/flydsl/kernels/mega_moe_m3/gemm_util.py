@@ -8,7 +8,8 @@ from flydsl.expr import const_expr, gpu, range_constexpr, rocdl
 from flydsl.expr.typing import T
 from flydsl.expr.typing import Vector as Vec
 
-_PACK = 2  # fp4 micro-scale pack (per-32 E8M0): pack_M = pack_N = pack_K = 2
+_PACK = 2  # per-32 E8M0 micro-scale pack: pack_M = pack_N = pack_K = 2
+# Also the number of 128-K sub-steps per 256-K step; both stay 2 under FP8.
 
 
 def _make_buffer(tensor, elem_ty, width=1, *, max_size=True, num_records_bytes=None):
@@ -252,17 +253,29 @@ class AS2RLoader:
 
 
 class BWeightLoader:
-    """Per-K-step fp4 gate&up weights VMEM->reg (i32x8, 128b widened). shuffle_weight_w4 N-major layout."""
+    """Per-K-step FP8 gate&up weights VMEM->reg. shuffle_weight N-major layout.
+
+    A lane's 32 FP8 elements are 32B, laid out as two 16B cells one full
+    64-lane block (1024B) apart -- the same cell pairing GEMM2 uses. A k0 block
+    is therefore 2048B and the row pitch model_dim*16, while a k0 block still
+    spans 128 K.
+    """
+
+    _STRIDE_NLANE = 16
+    _STRIDE_KLANE = 256
+    _STRIDE_CELL = 1024
+    _STRIDE_K0 = 2048
 
     def __init__(self, *, w_rsrc, num_acc_n, model_dim, cache_modifier=0):
         self._w_rsrc = w_rsrc
         self._num_acc_n = num_acc_n
         self._cache_modifier = int(cache_modifier)
         self._lane = fx.thread_idx.x % 64
-        self._stride_nlane = 16
-        self._stride_klane = 256
-        self._stride_k0 = 1024
-        self._stride_n0 = model_dim * 8
+        self._stride_nlane = self._STRIDE_NLANE
+        self._stride_klane = self._STRIDE_KLANE
+        self._stride_cell = self._STRIDE_CELL
+        self._stride_k0 = self._STRIDE_K0
+        self._stride_n0 = model_dim * 16
 
     def _load_pack(self, row_base_i32, ni, kstep_i32, ksub):
         lane_row = fx.Int32(self._lane % 16)
@@ -275,13 +288,17 @@ class BWeightLoader:
             + lane_k * fx.Int32(self._stride_klane)
             + lane_row * fx.Int32(self._stride_nlane)
         )
-        return _buffer_load(
-            self._w_rsrc,
-            byte // fx.Int32(16),
-            fx.Int32,
-            4,
-            self._cache_modifier,
-        )
+        cells = [
+            _buffer_load(
+                self._w_rsrc,
+                (byte + fx.Int32(c * self._stride_cell)) // fx.Int32(16),
+                fx.Int32,
+                4,
+                self._cache_modifier,
+            )
+            for c in range_constexpr(2)
+        ]
+        return Vec(cells[0]).shuffle(Vec(cells[1]), list(range(8)))
 
     def load_step(self, row_base_i32, kstep_i32):
         """list[num_acc_n] of [ksub0_i32x4, ksub1_i32x4] for this K-step."""
@@ -291,7 +308,7 @@ class BWeightLoader:
         ]
 
     def load_ni(self, row_base_i32, ni, kstep_i32):
-        """One N-group's [ksub0, ksub1] fp4 packs (per-ni so the pipe can interleave one next-tile B load)."""
+        """One N-group's [ksub0, ksub1] FP8 packs (per-ni so the pipe can interleave one next-tile B load)."""
         return [
             self._load_pack(row_base_i32, ni, kstep_i32, ks)
             for ks in range_constexpr(_PACK)
@@ -400,11 +417,15 @@ class AScaleLoader:
 
 
 class MfmaScaleGU:
-    """Gate/up scaled-MFMA atoms for FP8 A x FP4 B."""
+    """Gate/up scaled-MFMA atoms for FP8 A x FP8 B."""
+
+    # A lane feeds 32 B elements = 32B = i32x8. opsel keeps its 0..3 range.
+    _B_NDW = 8
 
     def __init__(self, *, m_repeat, num_acc_n):
         self._m_repeat = m_repeat
         self._num_acc_n = num_acc_n
+        self._b_ndw = self._B_NDW
         self._atoms = {
             (osa, osb): fx.make_mma_atom(
                 fx.rocdl.cdna4.MFMA_Scale(
@@ -412,7 +433,7 @@ class MfmaScaleGU:
                     16,
                     128,
                     fx.Float8E4M3FN,
-                    fx.Float4E2M1FN,
+                    fx.Float8E4M3FN,
                     opsel_a=osa,
                     opsel_b=osb,
                 )
@@ -429,7 +450,7 @@ class MfmaScaleGU:
         opsel_a = ksub * _PACK + ia
         opsel_b = ksub * _PACK + jb
         a_frag = fx.make_rmem_tensor(8, fx.Int32)
-        b_frag = fx.make_rmem_tensor(4, fx.Int32)
+        b_frag = fx.make_rmem_tensor(self._b_ndw, fx.Int32)
         c_frag = fx.make_rmem_tensor(4, fx.Float32)
         a_frag.store(Vec(a_op))
         b_frag.store(Vec(b_op))
@@ -552,7 +573,8 @@ class SiluQuantEpilogue:
 
     # fmt: off
     def __init__(self, *, out_rsrc, out_scale_rsrc, sorted_rsrc, tokens, inter_dim, m_repeat, num_acc_n,
-        sort_block_m, tile_n, num_waves, lds_out, swiglu_limit=0.0, always_valid=False, out_tensor=None):
+        sort_block_m, tile_n, num_waves, lds_out, swiglu_limit=0.0, swiglu_alpha=1.0, swiglu_beta=0.0,
+        always_valid=False, out_tensor=None):
     # fmt: on
         self._out_rsrc = out_rsrc
         self._out_scale_rsrc = out_scale_rsrc
@@ -566,13 +588,19 @@ class SiluQuantEpilogue:
         self._num_waves = num_waves
         self._lds_out = lds_out
         self._swiglu_limit = float(swiglu_limit)
+        # DeepSeek-V4 uses alpha=1 and no beta term; MiniMax-M3's SwiGLU-OAI is
+        # alpha=1.702 with (up + 1.0). Note the gate stays clamped on the UPPER
+        # side only in both -- that part is already correct for M3.
+        self._swiglu_alpha = float(swiglu_alpha)
+        self._swiglu_beta = float(swiglu_beta)
         self._always_valid = always_valid
         self._out_tensor = out_tensor
         self._lane = fx.thread_idx.x % 64
         self._sorted_scale_cols_i32 = (inter_dim // 32 + 7) // 8 * 8
 
     def _silu(self, g):
-        emu = (g * fx.Float32(-1.4426950408889634)).exp2()
+        # g * sigmoid(alpha*g), via exp2: -log2(e) * alpha folds into one constant.
+        emu = (g * fx.Float32(-1.4426950408889634 * self._swiglu_alpha)).exp2()
         return g * (fx.Float32(1.0) / (fx.Float32(1.0) + emu))
 
     def _combine(self, acc):
@@ -587,12 +615,19 @@ class SiluQuantEpilogue:
     def _silu_mul(self, gate_v4, up_v4):
         gv = Vec(gate_v4)
         uv = Vec(up_v4)
+        beta = self._swiglu_beta
+
+        def _up(u):
+            # beta == 0 must emit exactly the pre-existing code so the DSV4 path
+            # stays bit-identical.
+            return u if beta == 0.0 else u + fx.Float32(beta)
+
         if self._swiglu_limit <= 0:
-            elems = [self._silu(gv[i]) * uv[i] for i in range_constexpr(4)]
+            elems = [self._silu(gv[i]) * _up(uv[i]) for i in range_constexpr(4)]
             return Vec.from_elements(elems, fx.Float32)
         limit = fx.Float32(self._swiglu_limit)
         elems = [
-            self._silu(-(-gv[i]).maximumf(-limit)) * fx.clampf(uv[i], -limit, limit)
+            self._silu(-(-gv[i]).maximumf(-limit)) * _up(fx.clampf(uv[i], -limit, limit))
             for i in range_constexpr(4)
         ]
         return Vec.from_elements(elems, fx.Float32)

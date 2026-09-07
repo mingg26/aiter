@@ -6,7 +6,6 @@ import flydsl.compiler as flyc
 import flydsl.expr as fx
 from flydsl.expr import const_expr, gpu, range_constexpr, rocdl
 from flydsl.expr.typing import (
-    Float4E2M1FN,
     Float8E4M3FN,
     Float32,
     Int32,
@@ -47,13 +46,13 @@ def scale_view(
     return fx.rocdl.make_buffer_tensor(view, max_size=False)
 
 
-def scale_mma_atoms(a_dtype):
-    """16 (opselA,opselB) scaled-MFMA atoms; A elem is fp8/fp4, B is fp4."""
-    elem_a = Float8E4M3FN if a_dtype == "fp8" else Float4E2M1FN
+def scale_mma_atoms():
+    """16 (opselA,opselB) scaled-MFMA atoms; both operands are FP8 E4M3."""
+    elem_a = elem_b = Float8E4M3FN
     return {
         (osa, osb): fx.make_mma_atom(
             fx.rocdl.cdna4.MFMA_Scale(
-                16, 16, 128, elem_a, Float4E2M1FN, opsel_a=osa, opsel_b=osb
+                16, 16, 128, elem_a, elem_b, opsel_a=osa, opsel_b=osb
             )
         )
         for osa in range(4)
@@ -113,11 +112,11 @@ def issue_a_load_lds_dt(
     BM=32,
 ):
     """Load one A tile through a tile-local descriptor so allocations may span the 4 GiB buffer ABI."""
-    lanes_per_row = KH_TILE_A // 16  # 8 (fp4) / 16 (fp8)
-    rows_per_call = 64 // lanes_per_row  # 8 (fp4) / 4 (fp8)
+    lanes_per_row = KH_TILE_A // 16  # 16 for FP8 A
+    rows_per_call = 64 // lanes_per_row  # 4 for FP8 A
     a_lane_row = lane // lanes_per_row
     rows_per_wave = BM // 4  # rows each wave loads (BM32: 8, BM64: 16)
-    # BM16 fp4: partial-wave round-robin (waves 2,3 re-load, harmless); BM>=32 byte-identical per-wave blocks.
+    # BM16: partial-wave round-robin (waves 2,3 re-load, harmless); BM>=32 byte-identical per-wave blocks.
     partial_wave_gather = rows_per_wave < rows_per_call
     if const_expr(partial_wave_gather):
         n_gather_calls = BM // rows_per_call
@@ -178,7 +177,7 @@ def gemm2_compute_v2(
     use_nt,
     INTER_MAX,
     aStages,
-    a_dtype,
+
     has_pad=False,
     SBM=None,
     g2_bhoist=True,
@@ -194,11 +193,13 @@ def gemm2_compute_v2(
     tilesPerScaleChunk = 256 // BK  # K-tiles sharing one 256-K E8M0 word
     numAccN = (BN // 4) // 16  # 16-column MFMA subblocks per wave
     nPairs = max(1, numAccN // 2)  # one B-scale per two 16-column subblocks
+    B_NDW = 8  # i32 dwords per lane per MFMA K-half (32 FP8 = 32B)
+    B_CELLS = 2  # 16B cells making up those dwords
     # BM16: single 16-row block owning a 32-row scale chunk (chunk==m_block_idx, rg0-only).
     is_bm16 = BM < 32
     rg_off = 0
     kScaleSubBlocks = max(1, kMChunks // 2)
-    is_f8_a = a_dtype == "fp8"  # only the A path differs
+    is_f8_a = True  # A is FP8 E4M3
     a_pack = 1 if is_f8_a else 2
     KH_TILE_A = BK // a_pack
     slot_bytes = BM * KH_TILE_A
@@ -215,7 +216,7 @@ def gemm2_compute_v2(
         N_OUT_rt // fx.Int32(32)
     ) * kBS_stride_n0_dw  # (N_OUT//16//2)*stride
     num_n_blocks = N_OUT_rt // fx.Int32(BN)
-    KH4 = K_rt // fx.Int32(8)  # i32 col stride (= K_HALF//4)
+    KH4 = K_rt // fx.Int32(4)  # i32 col stride: FP8 is one byte per element
     K_SCALE_CHUNKS_MAX = INTER_MAX // 256
 
     # Padded shapes mask weight tiles beyond the real K/N extents.
@@ -242,12 +243,12 @@ def gemm2_compute_v2(
     lane_mod_16 = lane % 16
 
     s_aq_base = lds_base_i32
-    mma_atoms = scale_mma_atoms(a_dtype)
+    mma_atoms = scale_mma_atoms()
 
     # A activation: global->LDS DMA (issue_a_load_lds), then LDS->reg ds-read (issue_a_ds_read).
     A_NDW = (
         8 if is_f8_a else 4
-    )  # fp8 packs two 128-K halves -> i32<8:1>; fp4 -> i32<4:1>
+    )  # FP8 packs two 128-K halves -> i32<8:1>
     a_frags = [
         [fx.make_rmem_tensor(A_NDW, Int32) for _ in range_constexpr(kHalves)]
         for _ in range_constexpr(kMChunks)
@@ -269,7 +270,7 @@ def gemm2_compute_v2(
         )
 
     def issue_a_ds_read(slot):
-        # A ds-read for one slot into a_frags: fp8 -> i32<8:1> (two 128-K halves), fp4 -> i32<4:1>.
+        # A ds-read for one slot into a_frags: i32<8:1> (two 128-K halves).
         for k in range_constexpr(kHalves):
             for i in range_constexpr(kMChunks):
                 lds_row = lane_mod_16 + i * 16
@@ -372,7 +373,7 @@ def gemm2_compute_v2(
         for mw in range_constexpr(nPairs)
     ]
 
-    frag_tmpl = fx.make_rmem_tensor(4, Int32)
+    frag_tmpl = fx.make_rmem_tensor(B_NDW, Int32)
     # B-scale word template shares the A-scale layout (sc_frag_tmpl).
 
     def issue_b_load_into(bqf, bsf, kt_rt):
@@ -383,8 +384,8 @@ def gemm2_compute_v2(
                     bq_base_dw[j]
                     + lane_div_16 * fx.Int32(64)
                     + lane_mod_16 * fx.Int32(4)
-                    + kt_rt * fx.Int32(kHalves * 256)
-                    + fx.Int32(half * 256)
+                    + kt_rt * fx.Int32(kHalves * 256 * B_CELLS)
+                    + fx.Int32(half * 256 * B_CELLS)
                 )
                 load_mask = None
                 if const_expr(has_pad):
@@ -392,15 +393,20 @@ def gemm2_compute_v2(
                     load_mask = (col < N_real) & (
                         kt_rt * fx.Int32(kHalves) + fx.Int32(half) < halves_real
                     )
-                bq_vec = buffer_ops.buffer_load(
-                    bq_rsrc,
-                    bq_off_dw,
-                    vec_width=4,
-                    dtype=T.i32,
-                    mask=load_mask,
-                    cache_modifier=2 if use_nt else 0,
+                cells = [
+                    buffer_ops.buffer_load(
+                        bq_rsrc,
+                        bq_off_dw + fx.Int32(c * 256),
+                        vec_width=4,
+                        dtype=T.i32,
+                        mask=load_mask,
+                        cache_modifier=2 if use_nt else 0,
+                    )
+                    for c in range_constexpr(B_CELLS)
+                ]
+                bqf[j][half].store(
+                    Vec(cells[0]).shuffle(Vec(cells[1]), list(range(B_NDW)))
                 )
-                bqf[j][half].store(Vec(bq_vec))
         chunk_kt = (
             kt_rt
             if const_expr(tilesPerScaleChunk == 1)
@@ -651,7 +657,7 @@ def gemm2_compute_v2(
             results = yield yield_carry()
         store_carry(results)
 
-    # Load the C fragments (fp8/fp4 unified onto the same fx.gemm path) and hand them to the epilog.
+    # Load the C fragments and hand them to the epilog.
     accm_vecs = [
         [c_frags[i][J].load() for J in range(numAccN)] for i in range(kMChunks)
     ]
