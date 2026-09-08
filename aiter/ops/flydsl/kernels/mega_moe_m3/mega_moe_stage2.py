@@ -5,6 +5,7 @@
 
 import flydsl.compiler as flyc
 import flydsl.expr as fx
+from flydsl._mlir.dialects import llvm
 from flydsl.expr import const_expr, range_constexpr, rocdl
 from flydsl.expr.typing import Int8, T
 from flydsl.runtime.device import get_rocm_arch
@@ -18,6 +19,7 @@ from ..mxfp4_gemm_common import (
     lds_vec_load,
 )
 from ..tensor_shim import _run_compiled
+from .. import communication_ops_utils as comm_ops
 
 from .gemm2 import (
     _resolve_g2_knobs,
@@ -273,7 +275,8 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     SBM: int | None = None,
     persist: bool = False, cu_num: int = 0, has_pad: bool = False, g2_bhoist=None, g2_ascale_pf=None,
     g2_spart=None, persist_strided: bool = False, g2_bf16_lds: bool = False, p2p_quant_type: str = "none",
-    fixed_slot_dispatch: bool = False, skew_cu: int = 0):
+    fixed_slot_dispatch: bool = False, skew_cu: int = 0,
+    xcd_schedule: bool = False, band_m: int = 1, schedule_audit: bool = False, queue_grid_mult: int = 1):
 # fmt: on
     """Compile fused GEMM2 and weighted cross-rank P2P scatter."""
     arch = str(get_rocm_arch() or "")
@@ -295,6 +298,12 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         raise AssertionError(f"persist=True requires cu_num>0, got {cu_num}")
     if skew_cu and (not persist or not 0 < skew_cu < cu_num):
         raise AssertionError(f"skew_cu={skew_cu} requires persist=True and 0<skew_cu<cu_num={cu_num}")
+    assert 1 <= queue_grid_mult <= 8
+    assert band_m >= 1
+    if xcd_schedule or schedule_audit:
+        assert band_m > 1
+    if band_m > 1:
+        assert persist and (model_dim // BN) % 8 == 0
     log2_max_tok = max_tok.bit_length() - 1
     mask_max_tok = max_tok - 1
     N_OUT = model_dim
@@ -329,12 +338,14 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         f"_sk{skew_cu}"
         f"_bh{int(g2_bhoist)}apf{int(g2_ascale_pf)}sp{g2_group_num}x{g2_m01}"
         f"_bf16lds{int(g2_bf16_lds)}_{p2p_quant_type}"
+        + (f"_qm{band_m}_xq{int(xcd_schedule)}_qa{int(schedule_audit)}_qg{queue_grid_mult}" if band_m > 1 else "")
     )
 
     # fmt: off
     @flyc.kernel(name=kernel_name, known_block_size=[256, 1, 1])
     def kernel_epilog_v2(arg_aq: fx.Int64, arg_ascale: fx.Int64, arg_bq: fx.Int64, arg_bscale: fx.Int64,
         arg_eids: fx.Int64, arg_cumsum: fx.Int64, arg_max_expert_tiles: fx.Int64, arg_stids: fx.Int64,
+        arg_work_head: fx.Int64, arg_audit: fx.Int64,
         arg_sweights: fx.Int64, arg_trb: fx.Int64, arg_p2p_comb_inp: fx.Int64, i32_max_m_blocks: fx.Int32,
         i32_inter: fx.Int32, i32_hidden: fx.Int32, i32_kpad: fx.Int32, i32_npad: fx.Int32):
     # fmt: on
@@ -421,7 +432,50 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         cumsum0 = global_typed_ptr(arg_cumsum, T.i32)[0]
         total_m_blocks = (cumsum0 + fx.Int32(BM - 1)) // fx.Int32(BM)
 
-        if const_expr(not persist and g2_spart <= 0):
+        if const_expr(band_m > 1):
+            # Eight padded queues partition every (M,N) tile exactly once.
+            # XCD is a preference, never a correctness requirement: steal all
+            # other queues after local exhaustion. No device-wide wait.
+            physical_xcd = fx.Int32(llvm.inline_asm(
+                T.i32, [], "s_getreg_b32 $0, hwreg(HW_REG_XCC_ID, 0, 4)",
+                "=s", has_side_effects=True))
+            home = (physical_xcd if xcd_schedule else bx_i32) % fx.Int32(8)
+            n_local = num_n_blocks // fx.Int32(8)
+            queue_size = ((total_m_blocks + fx.Int32(band_m - 1)) // fx.Int32(band_m)
+                          * fx.Int32(band_m) * n_local)
+            attempt = fx.Int32(0)
+            # Reuse compute LDS only between tiles, with WG barriers before
+            # overwriting previous epilogue data and before reusing claim storage.
+            claim_ptr = lds_typed_ptr(fx.Int32(0), T.i32)
+            while attempt < fx.Int32(8):
+                queue = (home + attempt) % fx.Int32(8)
+                fx.barrier()
+                if tx_i32 == fx.Int32(0):
+                    claim = fx.Int32(comm_ops.atomic_add_agent(
+                        arg_work_head + fx.Int64(queue) * fx.Int64(256), fx.Int32(1)))
+                    fx.ptr_store(claim, claim_ptr)
+                fx.barrier()
+                ticket = fx.ptr_load(claim_ptr)
+                fx.barrier()
+                if ticket < queue_size:
+                    band = ticket // (fx.Int32(band_m) * n_local)
+                    rem = ticket % (fx.Int32(band_m) * n_local)
+                    m_block = band * fx.Int32(band_m) + rem % fx.Int32(band_m)
+                    n_block = (rem // fx.Int32(band_m)) * fx.Int32(8) + queue
+                    if m_block < total_m_blocks:
+                        unit_bx = m_block * num_n_blocks + n_block
+                        if const_expr(schedule_audit):
+                            if tx_i32 == fx.Int32(0):
+                                audit_addr = arg_audit + fx.Int64(unit_bx) * fx.Int64(12)
+                                comm_ops.atomic_add_agent(audit_addr, fx.Int32(1))
+                                fx.ptr_store(physical_xcd + fx.Int32(1), global_typed_ptr(audit_addr + fx.Int64(4), T.i32))
+                                fx.ptr_store((home == queue).select(fx.Int32(1), fx.Int32(0)), global_typed_ptr(audit_addr + fx.Int64(8), T.i32))
+                        issue_all_a_loads(m_block * fx.Int32(BM))
+                        rocdl.sched_barrier(0)
+                        run_unit(unit_bx, m_block)
+                else:
+                    attempt = attempt + fx.Int32(1)
+        elif const_expr(not persist and g2_spart <= 0):
             bound = total_m_blocks * fx.Int32(num_n_blocks)
             if fx.Int32(bx_i32) < bound:
                 issue_all_a_loads((bx_i32 // num_n_blocks) * fx.Int32(BM))
@@ -500,15 +554,16 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     @flyc.jit
     def launch(arg_aq: fx.Int64, arg_ascale: fx.Int64, arg_bq: fx.Int64, arg_bscale: fx.Int64,
         arg_eids: fx.Int64, arg_cumsum: fx.Int64, arg_max_expert_tiles: fx.Int64, arg_stids: fx.Int64,
+        arg_work_head: fx.Int64, arg_audit: fx.Int64,
         arg_sweights: fx.Int64, arg_trb: fx.Int64, arg_p2p_comb_inp: fx.Int64, i32_max_m_blocks: fx.Int32,
         i32_grid_blocks: fx.Int32, i32_inter: fx.Int32, i32_hidden: fx.Int32, i32_kpad: fx.Int32,
         i32_npad: fx.Int32, stream: fx.Stream):
     # fmt: on
         num_n_blocks = fx.Int32(i32_hidden) // fx.Int32(BN)
-        grid_x = i32_grid_blocks * num_n_blocks
+        grid_x = i32_grid_blocks * fx.Int32(queue_grid_mult) if band_m > 1 else i32_grid_blocks * num_n_blocks
         kernel_epilog_v2(
             arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cumsum, arg_max_expert_tiles,
-            arg_stids, arg_sweights, arg_trb, arg_p2p_comb_inp, i32_max_m_blocks, i32_inter,
+            arg_stids, arg_work_head, arg_audit, arg_sweights, arg_trb, arg_p2p_comb_inp, i32_max_m_blocks, i32_inter,
             i32_hidden, i32_kpad, i32_npad,
         ).launch(grid=(grid_x, 1, 1), block=(256, 1, 1), stream=stream)
 
@@ -534,9 +589,14 @@ def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cu
     model_dim, inter_dim, experts, topk, rank, npes, max_tok, recv_cap, comb_inp_nbytes, BM, SBM,
     HIDDEN_MAX, INTER_MAX, cu_num, BN=256, BK=256, use_nt=True, g2_bhoist=True,
     g2_ascale_pf=True, g2_spart=402, persist=False, persist_cu=0, persist_strided=False,
-    g2_bf16_lds=False, p2p_quant_type="none", fixed_slot_dispatch=False, skew_cu=0):
+    g2_bf16_lds=False, p2p_quant_type="none", fixed_slot_dispatch=False, skew_cu=0,
+    xcd_schedule=False, band_m=1, schedule_audit=False, work_head=0, audit_ptr=0, queue_grid_mult=1):
     # fmt: on
     """Compile or reuse one fused Stage2 configuration and launch it."""
+    if band_m > 1:
+        assert work_head != 0, "queue scheduling requires a zeroed per-invocation work buffer"
+    if schedule_audit:
+        assert audit_ptr != 0, "schedule audit requires a cleared tile audit buffer"
     launch_cu_num = min(cu_num, persist_cu) if persist and persist_cu > 0 else cu_num
     launch = _get_g2_launch(
         model_dim=model_dim, inter_dim=inter_dim, experts=experts, topk=topk, rank=rank, npes=npes,
@@ -545,11 +605,12 @@ def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cu
         cu_num=launch_cu_num, g2_bhoist=g2_bhoist, g2_ascale_pf=g2_ascale_pf,
         g2_spart=g2_spart, persist_strided=persist_strided, g2_bf16_lds=g2_bf16_lds,
         p2p_quant_type=p2p_quant_type, fixed_slot_dispatch=fixed_slot_dispatch, skew_cu=skew_cu,
+        xcd_schedule=xcd_schedule, band_m=band_m, schedule_audit=schedule_audit, queue_grid_mult=queue_grid_mult,
     )
     max_m_blocks = (row_capacity + BM - 1) // BM
     grid_blocks = launch_cu_num if persist else max_m_blocks
     _run_compiled(
         launch, arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cumsum,
-        arg_max_expert_tiles, arg_stids, arg_sweights, arg_trb, arg_p2p, fx.Int32(max_m_blocks),
+        arg_max_expert_tiles, arg_stids, fx.Int64(work_head), fx.Int64(audit_ptr), arg_sweights, arg_trb, arg_p2p, fx.Int32(max_m_blocks),
         fx.Int32(grid_blocks), fx.Int32(i32_inter), fx.Int32(i32_hidden), fx.Int32(0), fx.Int32(0), stream,
     )

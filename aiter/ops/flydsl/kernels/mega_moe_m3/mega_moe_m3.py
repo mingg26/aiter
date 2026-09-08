@@ -2,6 +2,9 @@
 # Copyright (c) 2025 FlyDSL Project Contributors
 """MegaMoE v2 fused dispatch, GEMM1, GEMM2, and combine implementation."""
 
+from dataclasses import replace
+import os
+
 import flydsl.expr as fx
 import mori.shmem as ms
 import torch
@@ -13,6 +16,7 @@ from ..flydsl_dispatch_combine_intranode_op import (
 from .dispatch import DISPATCH_TABLE_SIZE, DispatchSlot
 from .mega_moe_config import (
     FIXED_SLOT_MAX_MTPR,
+    _STAGE1_OVERRIDE_ENV,
     MegaMoEConfig,
     Stage1Config,
     select_mega_moe_config,
@@ -212,6 +216,42 @@ class MegaMoEM3:
             model_dim=self.model_dim,
             inter_dim=self.inter_dim,
         )
+        # Best measured EP4 M3 8192-token stage configurations. S1 retains
+        # M128 and double-stage B; its two-CTA alternatives regress. S2 uses
+        # M64/N128/K128 with 1200 queued CTAs to feed its four-CTA capacity.
+        # Keep this promotion scoped to the measured operating point.
+        # Explicit tuning overrides bypass the measured default preset.
+        if ((self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk,
+             tokens, self.mtpr) == (4, 32, 6144, 3072, 4, 8192, 8192)
+                and (config.stage1.sort_block_m, config.stage2.block_m,
+                     config.stage2.block_n, config.stage2.block_k,
+                     config.stage2.persist, config.stage2.persist_cu)
+                == (128, 64, 256, 256, True, 240)
+                and config.p2p_quant == "none"
+                and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())):
+            config = replace(
+                config,
+                stage1=replace(config.stage1, num_waves=8, grid_mult=1,
+                    num_dispatch_cu=96, pipe_weights=True, waves_per_eu_hint=2,
+                    packed_a_scale=True, unroll_a_pingpong=True, split_a_lds=True,
+                    xcd_schedule=True, work_shards=8, band_m=8,
+                    fp8_b_waitcnt=False, prefetch_a_operand=False,
+                    scalar_tile_row_base=False, schedule_audit=False),
+                stage2=replace(config.stage2, block_m=64, block_n=128,
+                    block_k=128, band_m=8, queue_grid_mult=5, xcd_schedule=True))
+        # Small-token EP4 measurements favor the existing wide tile/B pipe
+        # with fewer control CTAs and one CU-sized grid. Smaller tiles and
+        # the two-CTA variant lose despite eliminating register spills.
+        if ((self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk)
+                == (4, 32, 6144, 3072, 4)
+                and tokens in (256, 512, 1024) and self.mtpr == tokens
+                and (config.stage1.sort_block_m, config.stage1.tile_n,
+                     config.stage1.tile_k, config.stage1.num_waves)
+                == (64, 512, 256, 8)
+                and config.p2p_quant == "none"
+                and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())):
+            config = replace(config, stage1=replace(
+                config.stage1, grid_mult=1, num_dispatch_cu=32))
         self._active_config = config
         return config
 
@@ -324,6 +364,8 @@ class MegaMoEM3:
         self._g2v2_inter = int(self.inter_dim)
         self._g2v2_hidden = int(comb_cfg.hidden_dim)
         self._g2_run = run_mega_moe_stage2
+        self._g2_work_head = torch.zeros(8 * 64, dtype=torch.int32, device=dev)
+        self._g2_schedule_audit = None
         self._g2_invariants_by_quant = {}
         for p2p_quant in ("none", "fp8_blockwise_1x32"):
             p2p_row_nbytes = (
@@ -351,6 +393,12 @@ class MegaMoEM3:
             stream = torch.cuda.current_stream()
         s_fx = fx.Stream(stream.cuda_stream)
         stage2 = config.stage2
+        if stage2.band_m > 1:
+            with torch.cuda.stream(stream):
+                self._g2_work_head.zero_()
+                if stage2.schedule_audit:
+                    assert self._g2_schedule_audit is not None
+                    self._g2_schedule_audit.zero_()
         p2p_quant = config.p2p_quant
         invariants = self._g2_invariants_by_quant[p2p_quant]
         # fmt: off
@@ -367,7 +415,10 @@ class MegaMoEM3:
             g2_ascale_pf=stage2.ascale_prefetch, g2_spart=stage2.spatial_partition,
             persist=stage2.persist, persist_cu=stage2.persist_cu,
             persist_strided=stage2.persist_strided, skew_cu=stage2.skew_cu,
-            g2_bf16_lds=stage2.bf16_lds, **invariants)
+            g2_bf16_lds=stage2.bf16_lds, xcd_schedule=stage2.xcd_schedule,
+            band_m=stage2.band_m, schedule_audit=stage2.schedule_audit, queue_grid_mult=stage2.queue_grid_mult,
+            work_head=self._g2_work_head.data_ptr(),
+            audit_ptr=self._g2_schedule_audit.data_ptr() if stage2.schedule_audit else 0, **invariants)
         # fmt: on
         self._g2_active_block_m = stage2.block_m
         return comb_op.combine_no_stage1(

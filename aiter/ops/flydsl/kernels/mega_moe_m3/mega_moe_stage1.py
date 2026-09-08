@@ -148,10 +148,13 @@ def compile_mega_moe_stage1(
     if prefetch_a_operand:
         assert split_a_lds and unroll_a_pingpong and mfma_amajor
     if fp8_b_waitcnt:
-        assert split_a_lds, "FP8 wait-count experiment requires audited split-LDS shape"
+        assert split_a_lds and pipe_weights, "FP8 wait-count experiment requires pipelined B"
     if split_a_lds:
-        assert unroll_a_pingpong and async_a_copy and mfma_amajor and pipe_weights
-        assert (sort_block_m, tile_n, tile_k, num_waves) == (128, 256, 256, 8)
+        assert unroll_a_pingpong and async_a_copy and mfma_amajor
+        # Independent A ping/pong and split CShuffle addressing scale with M.
+        # Keep the audited N/K/wave geometry while testing smaller row tiles.
+        assert sort_block_m in (32, 64, 128)
+        assert (tile_n, tile_k, num_waves) == (256, 256, 8)
         assert K_ITERS % 2 == 0 and lds_pool_bytes == 2 * a_lds_size
 
     fz_npes, fz_epr, fz_k = int(fuse_npes), int(experts_per_rank), int(fuse_topk)

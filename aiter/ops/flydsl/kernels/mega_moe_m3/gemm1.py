@@ -281,48 +281,83 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
         a_scale.stage(a_scale_lds, tile_row_base)
         wait_lds_barrier(0 if async_a_copy else 63)
         init = [mfma.zero_value for _ in range(N_ACC)]
-        for sp_i, state in range(0, K_ITERS, 1, init=init):
-            sp = fx.Int32(sp_i)
-            acc = [Vec(a) for a in state]
-            cur_off = (sp & fx.Int32(1)) * fx.Int32(a_lds_i32)
-            nxt_off = ((sp + fx.Int32(1)) & fx.Int32(1)) * fx.Int32(a_lds_i32)
-            spn = (sp + fx.Int32(1) < last).select(
-                sp + fx.Int32(1),
-                last,
-            )
+        if const_expr(unroll_a_pingpong):
+            # Single-stage B reduces live operand state; A retains its two
+            # independent LDS slots and compile-time phase addressing.
+            assert async_a_copy and mfma_amajor and K_ITERS % 2 == 0
 
-            def a_load(mi, ks, _base=cur_off):
-                return a_s2r.load_operand(a_buf, mi, ks, _base)
+            @flyc.jit
+            def streamed_step(values, step: fx.Int32, phase, has_next):
+                accum = [Vec(v) for v in values]
+                b = b_loader.load_step(b_row, step)
+                sa = a_scale.load_step(a_scale_lds, step)
+                sb = b_scale.load_step(b_row, step)
+                if const_expr(has_next):
+                    rocdl.sched_barrier(0)
+                    a_gather.prefetch_to_lds(
+                        (step + fx.Int32(1)) * fx.Int32(A_K_STEP_BYTES),
+                        (a_buf.pong if phase == 0 else a_buf.ping) if split_a_lds else a_buf,
+                        fx.Int32(0 if split_a_lds else (1 - phase) * a_lds_i32))
+                    rocdl.sched_barrier(0)
 
-            b = b_loader.load_step(b_row, sp)
-            sa = a_scale.load_step(a_scale_lds, sp)
-            sb = b_scale.load_step(b_row, sp)
-            if const_expr(async_a_copy):
-                rocdl.sched_barrier(0)
-                a_gather.prefetch_to_lds(
-                    spn * fx.Int32(A_K_STEP_BYTES),
-                    a_buf,
-                    nxt_off,
-                )
-                rocdl.sched_barrier(0)
-            else:
-                a_regs = a_gather.load_regs(
-                    spn * fx.Int32(A_K_STEP_BYTES)
-                )
-            acc = mfma.call(
-                a_load,
-                b,
-                acc,
-                sa,
-                sb,
-            )
-            if const_expr(async_a_copy):
+                def a_load(mi, ks):
+                    return a_s2r.load_operand(
+                        (a_buf.ping if phase == 0 else a_buf.pong) if split_a_lds else a_buf,
+                        mi, ks, fx.Int32(0 if split_a_lds else phase * a_lds_i32))
+
+                accum = mfma.call(a_load, b, accum, sa, sb)
                 wait_lds_barrier(0)
-            else:
-                a_gather.store(a_buf, a_regs, nxt_off)
-                wait_lds_barrier()
-            state = yield list(acc)
-        acc = [Vec(r) for r in state]
+                return list(accum)
+
+            for pair, values in range(0, K_ITERS - 2, 2, init=init):
+                first = streamed_step(values, fx.Int32(pair), 0, True)
+                second = streamed_step(first, fx.Int32(pair) + fx.Int32(1), 1, True)
+                values = yield second
+            penultimate = streamed_step(values, fx.Int32(K_ITERS - 2), 0, True)
+            acc = streamed_step(penultimate, fx.Int32(K_ITERS - 1), 1, False)
+        else:
+            for sp_i, state in range(0, K_ITERS, 1, init=init):
+                sp = fx.Int32(sp_i)
+                acc = [Vec(a) for a in state]
+                cur_off = (sp & fx.Int32(1)) * fx.Int32(a_lds_i32)
+                nxt_off = ((sp + fx.Int32(1)) & fx.Int32(1)) * fx.Int32(a_lds_i32)
+                spn = (sp + fx.Int32(1) < last).select(
+                    sp + fx.Int32(1),
+                    last,
+                )
+
+                def a_load(mi, ks, _base=cur_off):
+                    return a_s2r.load_operand(a_buf, mi, ks, _base)
+
+                b = b_loader.load_step(b_row, sp)
+                sa = a_scale.load_step(a_scale_lds, sp)
+                sb = b_scale.load_step(b_row, sp)
+                if const_expr(async_a_copy):
+                    rocdl.sched_barrier(0)
+                    a_gather.prefetch_to_lds(
+                        spn * fx.Int32(A_K_STEP_BYTES),
+                        a_buf,
+                        nxt_off,
+                    )
+                    rocdl.sched_barrier(0)
+                else:
+                    a_regs = a_gather.load_regs(
+                        spn * fx.Int32(A_K_STEP_BYTES)
+                    )
+                acc = mfma.call(
+                    a_load,
+                    b,
+                    acc,
+                    sa,
+                    sb,
+                )
+                if const_expr(async_a_copy):
+                    wait_lds_barrier(0)
+                else:
+                    a_gather.store(a_buf, a_regs, nxt_off)
+                    wait_lds_barrier()
+                state = yield list(acc)
+            acc = [Vec(r) for r in state]
     # The epilogue aliases A_buf as cshuffle LDS after every wave finishes its final A ds_read.
     wait_lds_barrier()
     epi.store(acc, m_tile, tile_row_base, n_tile_base)
