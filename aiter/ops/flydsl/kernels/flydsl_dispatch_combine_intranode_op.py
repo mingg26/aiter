@@ -1315,10 +1315,10 @@ class FlyDSLDispatchCombineIntraNodeOp:
         blockwise_fp8 = skip_stage1 and p2p_quant == "fp8_blockwise_1x32"
         local_reduce_epr = 0
         if stage2_topk_ids is not None:
-            if not (skip_stage1 and cfg.world_size == cfg.num_experts_per_token == 4
+            if not (skip_stage1 and cfg.world_size in (4, 8) and cfg.num_experts_per_token == 4
                     and p2p_quant == "none" and not enable_weights and not cfg.zero_copy
                     and not cfg.enable_std_moe and not fp8_dc):
-                raise ValueError("local reduction requires fused EP4/topk4 BF16 combine")
+                raise ValueError("local reduction requires fused EP4 or EP8/topk4 BF16 combine")
             if (stage2_topk_ids.dtype != torch.int32 or not stage2_topk_ids.is_contiguous()
                     or stage2_topk_ids.device != input.device
                     or tuple(stage2_topk_ids.shape) != (int(cur_tok), cfg.num_experts_per_token)):

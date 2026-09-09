@@ -157,10 +157,10 @@ def per_1x32_mx_quant(x, stream=None, *, topk_ids=None, route_peers=None,
         stream if stream is not None else torch.cuda.current_stream().cuda_stream
     )
     if npes:
-        if (npes != 4 or epr <= 0 or m > mtpr or topk_ids is None
+        if (npes not in (4, 8) or epr <= 0 or m > mtpr or topk_ids is None
                 or topk_ids.shape != (m, 4) or topk_ids.dtype != torch.int32
                 or not topk_ids.is_contiguous() or route_peers is None):
-            raise ValueError("route output requires EP4, contiguous int32 topk4 IDs and peer table")
+            raise ValueError("route output requires EP4 or EP8, contiguous int32 topk4 IDs and peer table")
     _get_launcher(n, rank=rank, npes=npes, mtpr=mtpr, epr=epr)(
         x, y, scale, int(m), int(grid_blocks),
         fx.Int64(topk_ids.data_ptr() if npes else 0),

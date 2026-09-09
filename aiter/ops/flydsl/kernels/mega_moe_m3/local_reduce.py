@@ -54,7 +54,12 @@ def scatter_local_reduce(lds_acc_base, n_block_idx, wave, lane, staging, counter
     """
     stripes = N_OUT // BN
     staging_bytes = recv_cap * topk * N_OUT * 2
-    rstage = buffer_ops.create_buffer_resource_from_addr(staging, num_records_bytes=staging_bytes)
+    # A full EP8/8k staging tensor is 3 GiB. Keep each buffer offset signed
+    # 32-bit by rebasing its descriptor to the source-rank slice (384 MiB).
+    # The token/descriptor is wave-uniform; the original EP4 path is unchanged.
+    split_staging = staging_bytes >= (1 << 31)
+    window_bytes = (1 << log2_max_tok) * topk * N_OUT * 2 if split_staging else staging_bytes
+    rstage = buffer_ops.create_buffer_resource_from_addr(staging, num_records_bytes=window_bytes)
     active = lane < fx.Int32(BN // 8)
     col = active.select(lane * fx.Int32(8), fx.Int32(0))
 
@@ -68,9 +73,17 @@ def scatter_local_reduce(lds_acc_base, n_block_idx, wave, lane, staging, counter
         valid = (token < recv_cap) & ((token >> log2_max_tok) < npes) & (slot_count(mask) > 1)
         pk = fx.Vector(lds_vec_load(lds_acc_base, (row * BN + col) * 2,
                        fx.Vector.make_type(8, fx.BFloat16), fx.BFloat16, align=16))
-        offset = ((token * topk + slot) * N_OUT + n_block_idx * BN + col) * 2
-        offset = (valid & active).select(offset, fx.Int32(staging_bytes))
-        buffer_ops.buffer_store(pk.bitcast(fx.Int32).ir_value(), rstage, offset,
+        stage_token = token
+        store_resource = rstage
+        if const_expr(split_staging):
+            source_pe = (token >> log2_max_tok)
+            source_pe = (source_pe < npes).select(source_pe, fx.Int32(0))
+            store_resource = buffer_ops.create_buffer_resource_from_addr(
+                staging + fx.Int64(source_pe) * window_bytes, num_records_bytes=window_bytes)
+            stage_token = token & mask_max_tok
+        offset = ((stage_token * topk + slot) * N_OUT + n_block_idx * BN + col) * 2
+        offset = (valid & active).select(offset, fx.Int32(window_bytes))
+        buffer_ops.buffer_store(pk.bitcast(fx.Int32).ir_value(), store_resource, offset,
                                offset_is_bytes=True, cache_modifier=0 if same_xcd else 0x12)
 
     # Wait before another lane of this wave publishes the row. The default
@@ -120,6 +133,13 @@ def scatter_local_reduce(lds_acc_base, n_block_idx, wave, lane, staging, counter
         dest_pe = token >> log2_max_tok
         valid = (token < recv_cap) & (dest_pe < npes)
         emit = valid & ((count == 1) | ((count > 1) & (done == count - 1)))
+        stage_token = token
+        load_resource = rstage
+        if const_expr(split_staging):
+            source_pe = (dest_pe < npes).select(dest_pe, fx.Int32(0))
+            load_resource = buffer_ops.create_buffer_resource_from_addr(
+                staging + fx.Int64(source_pe) * window_bytes, num_records_bytes=window_bytes)
+            stage_token = token & mask_max_tok
         if emit:
             own = fx.Vector(lds_vec_load(lds_acc_base, (row * BN + col) * 2,
                             fx.Vector.make_type(8, fx.BFloat16), fx.BFloat16, align=16))
@@ -128,12 +148,12 @@ def scatter_local_reduce(lds_acc_base, n_block_idx, wave, lane, staging, counter
                 result = fx.Vector.filled(8, 0.0, fx.Float32)
                 for k_slot in range_constexpr(topk):
                     other = (mask & (1 << k_slot) != 0) & (slot != k_slot) & active
-                    offset = ((token * topk + k_slot) * N_OUT + n_block_idx * BN + col) * 2
-                    offset = other.select(offset, fx.Int32(staging_bytes))
+                    offset = ((stage_token * topk + k_slot) * N_OUT + n_block_idx * BN + col) * 2
+                    offset = other.select(offset, fx.Int32(window_bytes))
                     # NT bypasses CU cache but can hit shared L2 (CDNA4 table 49).
                     # Bare buffer_inv is a NOP on gfx950, so do not replace this
                     # with a cached load plus a bare invalidate.
-                    raw = buffer_ops.buffer_load(rstage, offset // 4, vec_width=4, dtype=fx.Int32,
+                    raw = buffer_ops.buffer_load(load_resource, offset // 4, vec_width=4, dtype=fx.Int32,
                                                   cache_modifier=2)
                     vals = fx.Vector(raw).bitcast(fx.BFloat16).to(fx.Float32)
                     own32 = own.to(fx.Float32)
@@ -150,7 +170,14 @@ def scatter_local_reduce(lds_acc_base, n_block_idx, wave, lane, staging, counter
                 fx.Int32(lds_peer_off) + dest_pe_safe * 8, T.i64, align=8))
             peer = rocdl.readfirstlane(T.i64, peer.ir_value())
             rdst = buffer_ops.create_buffer_resource_from_addr(peer, num_records_bytes=comb_inp_nbytes)
-            offset = ((dest_lid * npes + rank) * N_OUT + n_block_idx * BN + col) * 2
+            partial_slot = fx.Int32(rank)
+            if const_expr(npes != topk):
+                # At most topk ranks participate. Each rank publishes to its
+                # first original top-k slot; no eight-copy/token expansion.
+                partial_slot = fx.Int32(topk - 1)
+                for k_slot in range_constexpr(topk - 2, -1, -1):
+                    partial_slot = (mask & (1 << k_slot) != 0).select(fx.Int32(k_slot), partial_slot)
+            offset = ((dest_lid * topk + partial_slot) * N_OUT + n_block_idx * BN + col) * 2
             offset = active.select(offset, fx.Int32(comb_inp_nbytes))
             buffer_ops.buffer_store(result.to(fx.BFloat16).bitcast(fx.Int32).ir_value(),
                                    rdst, offset, offset_is_bytes=True, cache_modifier=2)

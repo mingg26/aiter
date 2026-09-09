@@ -462,10 +462,10 @@ def make_combine_kernel(
             "blockwise_fp8_transport and fp8_direct_cast are mutually exclusive"
         )
     if local_reduce_epr:
-        if not (skip_stage1 and npes == experts_per_token == 4
+        if not (skip_stage1 and npes in (4, 8) and experts_per_token == 4
                 and data_type == torch.bfloat16 and not enable_weights
                 and not zero_copy and not fp8_direct_cast and not blockwise_fp8_transport):
-            raise ValueError("rank-local combine requires fused EP4/topk4 BF16 input")
+            raise ValueError("rank-local combine requires fused EP4 or EP8/topk4 BF16 input")
     _xfer_bf16_to_fp8 = fp8_direct_cast
     _transport_dtype = torch.float8_e4m3fn if _xfer_bf16_to_fp8 else data_type
 
@@ -964,6 +964,8 @@ def make_combine_kernel(
             if const_expr(local_reduce_epr > 0):
                 route_rsrc = create_buffer_resource_from_addr(addr_stage2_topk_ids)
                 peer_mask = fx.Int32(0)
+                route_pes = []
+                route_valid = []
                 for k_slot in range_constexpr(experts_per_token):
                     eid = buffer_load(route_rsrc, tok_id * experts_per_token + k_slot,
                                       vec_width=1, dtype=T.i32)
@@ -971,10 +973,19 @@ def make_combine_kernel(
                     valid_route = (eid >= 0) & (pe < npes)
                     pe = valid_route.select(pe, 0)
                     peer_mask = peer_mask | valid_route.select(fx.Int32(1) << pe, 0)
+                    route_pes.append(pe)
+                    route_valid.append(valid_route)
                 peer_mask = fx.Int32(readfirstlane(T.i32, peer_mask.ir_value()))
                 for source_rank in range_constexpr(npes):
                     present = (peer_mask & (1 << source_rank)) != 0
-                    addr = addr_shmem_tok + fx.Int64(tok_id * npes + source_rank) * nbytes
+                    partial_slot = fx.Int32(source_rank)
+                    if const_expr(npes != experts_per_token):
+                        partial_slot = fx.Int32(0)
+                        for k_slot in range_constexpr(experts_per_token - 1, -1, -1):
+                            match = route_valid[k_slot] & (route_pes[k_slot] == source_rank)
+                            partial_slot = match.select(fx.Int32(k_slot), partial_slot)
+                        partial_slot = fx.Int32(readfirstlane(T.i32, fx.Int32(partial_slot).ir_value()))
+                    addr = addr_shmem_tok + fx.Int64(tok_id * experts_per_token + partial_slot) * nbytes
                     # A zero-length resource suppresses the memory access itself;
                     # absent slots may contain NaNs or data from earlier routing.
                     expert_rsrcs.append(create_buffer_resource_from_addr(
@@ -1046,7 +1057,9 @@ def make_combine_kernel(
                 vals = [[] for _ in range(U)]
                 scales = [[] for _ in range(U)]
                 scale_raws = [[] for _ in range(U)]
-                for k_slot in range_constexpr(experts_per_token):
+                # Visit all ranks in deterministic order; absent ranks have
+                # zero-length resources. At most topk partials are present.
+                for k_slot in range_constexpr(npes if local_reduce_epr else experts_per_token):
                     rsrc_k = expert_rsrcs[k_slot]
                     vld_k = expert_vlds[k_slot]
                     for u in range_constexpr(U):

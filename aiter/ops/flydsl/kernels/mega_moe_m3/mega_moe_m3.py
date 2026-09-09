@@ -45,10 +45,10 @@ class MegaMoEM3:
         if self.local_reduce_xcd_local and not self.local_reduce:
             raise ValueError("XCD-local staging requires local_reduce=True")
         if self.local_reduce:
-            if world_size != 4 or topk != 4:
-                raise ValueError("BF16 local reduction currently supports EP4/topk4")
-            if world_size * max_tok_per_rank * topk * model_dim * 2 >= (1 << 31):
-                raise ValueError("local reduction staging exceeds the buffer offset ABI")
+            if world_size not in (4, 8) or topk != 4:
+                raise ValueError("BF16 local reduction supports EP4 or EP8 with topk4")
+            if max_tok_per_rank * topk * model_dim * 2 >= (1 << 31):
+                raise ValueError("local reduction per-source staging or top-k partial buffer exceeds the buffer offset ABI")
         self.rank = int(rank)
         self.world_size = int(world_size)
         self.model_dim = int(model_dim)
