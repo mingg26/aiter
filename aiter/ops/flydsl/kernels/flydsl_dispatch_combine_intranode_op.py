@@ -1235,7 +1235,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
         return cur_tok
 
     def _run_combine_kernel(
-        self, cache, key, fn, inp_ptr, wts_ptr, prx_ptr, cur_tok, stream
+        self, cache, key, fn, inp_ptr, wts_ptr, prx_ptr, cur_tok, stream, stage2_ids_ptr=0
     ):
         """Compile once and reuse the cached combine launcher."""
         fixed = (
@@ -1262,6 +1262,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
                 *tail,
                 fx.Int64(prx_ptr),
                 *std,
+                fx.Int64(stage2_ids_ptr),
                 cur_tok,
                 stream,
             )
@@ -1273,6 +1274,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
                 *tail,
                 prx_ptr,
                 *std,
+                stage2_ids_ptr,
                 cur_tok,
                 stream,
             )
@@ -1287,6 +1289,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
         enable_weights,
         skip_stage1,
         stage2_p2p_quant=None,
+        stage2_topk_ids=None,
     ):
         """Launch regular or skip-stage1 combine."""
         cfg = self.cfg
@@ -1310,6 +1313,17 @@ class FlyDSLDispatchCombineIntraNodeOp:
                 f"Supported: {_SUPPORTED_STAGE2_P2P_QUANT_TYPES}"
             )
         blockwise_fp8 = skip_stage1 and p2p_quant == "fp8_blockwise_1x32"
+        local_reduce_epr = 0
+        if stage2_topk_ids is not None:
+            if not (skip_stage1 and cfg.world_size == cfg.num_experts_per_token == 4
+                    and p2p_quant == "none" and not enable_weights and not cfg.zero_copy
+                    and not cfg.enable_std_moe and not fp8_dc):
+                raise ValueError("local reduction requires fused EP4/topk4 BF16 combine")
+            if (stage2_topk_ids.dtype != torch.int32 or not stage2_topk_ids.is_contiguous()
+                    or stage2_topk_ids.device != input.device
+                    or tuple(stage2_topk_ids.shape) != (int(cur_tok), cfg.num_experts_per_token)):
+                raise ValueError("stage2_topk_ids must be contiguous local int32[cur_tok, topk]")
+            local_reduce_epr = cfg.num_experts_per_rank
         if skip_stage1:
             # placeholder input: pre-cast to fp8 so the kernel dtype + out view match.
             if fp8_dc and input.dtype != torch.float8_e4m3fn:
@@ -1370,6 +1384,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
             bn,
             wpb,
             bool(skip_stage1),
+            local_reduce_epr,
         )
         fn = self._comb_jit_cache.get(key)
         if fn is None:
@@ -1388,6 +1403,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
                 skip_stage1=bool(skip_stage1),
                 fp8_direct_cast=bool(fp8_dc),
                 blockwise_fp8_transport=bool(blockwise_fp8),
+                local_reduce_epr=local_reduce_epr,
                 # Must match dispatch's encoding stride so tok_map decode lines up.
                 max_recv=self._effective_max_recv,
             )
@@ -1401,6 +1417,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
             prx_ptr,
             _cur_tok,
             stream,
+            stage2_ids_ptr=stage2_topk_ids.data_ptr() if stage2_topk_ids is not None else 0,
         )
 
         mt = cfg.max_num_inp_token_per_rank
@@ -1446,6 +1463,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
         cur_tok=None,
         enable_weights: bool = True,
         stage2_p2p_quant=None,
+        stage2_topk_ids=None,
     ):
         """Run combine after fused GEMM2 has populated the P2P input."""
         if not type(self)._ENABLE_COMBINE_NO_STAGE1:
@@ -1464,6 +1482,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
             enable_weights=enable_weights,
             skip_stage1=True,
             stage2_p2p_quant=stage2_p2p_quant,
+            stage2_topk_ids=stage2_topk_ids,
         )
 
     def get_dispatch_src_token_pos(self):

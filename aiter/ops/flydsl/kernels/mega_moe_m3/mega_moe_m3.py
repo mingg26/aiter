@@ -33,12 +33,22 @@ class MegaMoEM3:
     def __init__(self, *, rank: int, world_size: int, model_dim: int, inter_dim: int, experts: int, topk: int,
         w1: torch.Tensor, w1_scale: torch.Tensor, w2: torch.Tensor, w2_scale: torch.Tensor,
         max_tok_per_rank: int, mega_scheme: str = "fixedslot", swiglu_limit: float = 7.0,
-        swiglu_alpha: float = 1.702, swiglu_beta: float = 1.0):
+        swiglu_alpha: float = 1.702, swiglu_beta: float = 1.0, local_reduce: bool = False,
+        local_reduce_xcd_local: bool = False):
     # fmt: on
         if experts % world_size != 0:
             raise ValueError(f"experts={experts} must be divisible by world_size={world_size}")
         if max_tok_per_rank <= 0 or max_tok_per_rank & (max_tok_per_rank - 1):
             raise ValueError(f"max_tok_per_rank={max_tok_per_rank} must be a power of two")
+        self.local_reduce = bool(local_reduce)
+        self.local_reduce_xcd_local = bool(local_reduce_xcd_local)
+        if self.local_reduce_xcd_local and not self.local_reduce:
+            raise ValueError("XCD-local staging requires local_reduce=True")
+        if self.local_reduce:
+            if world_size != 4 or topk != 4:
+                raise ValueError("BF16 local reduction currently supports EP4/topk4")
+            if world_size * max_tok_per_rank * topk * model_dim * 2 >= (1 << 31):
+                raise ValueError("local reduction staging exceeds the buffer offset ABI")
         self.rank = int(rank)
         self.world_size = int(world_size)
         self.model_dim = int(model_dim)
@@ -252,10 +262,43 @@ class MegaMoEM3:
                 and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())):
             config = replace(config, stage1=replace(
                 config.stage1, grid_mult=1, num_dispatch_cu=32))
+        # The measured local-reduce optimum at the 1024-token M3 point uses
+        # the same M*N tile area as the generic preset, but swaps M32/N256 for
+        # M64/N128 and halves K. It raises the resource-limited occupancy from
+        # two to three CTAs/CU and changed the complete path from a regression
+        # to a small win. Keep it local-reduce-only; the clean path's measured
+        # optimum remains the generic M32/N256/K256 preset.
+        if (self.local_reduce_xcd_local
+                and (self.world_size, self.epr, self.model_dim, self.inter_dim,
+                     self.topk, tokens, self.mtpr)
+                == (4, 32, 6144, 3072, 4, 1024, 1024)
+                and (config.stage1.sort_block_m, config.stage2.block_m,
+                     config.stage2.block_n, config.stage2.block_k,
+                     config.stage2.persist, config.stage2.persist_cu)
+                == (64, 32, 256, 256, True, 240)
+                and config.p2p_quant == "none"
+                and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())):
+            config = replace(config, stage2=replace(
+                config.stage2, block_m=64, block_n=128, block_k=128,
+                band_m=8, xcd_schedule=True, queue_grid_mult=5))
+        if self.local_reduce_xcd_local and not (
+                config.stage2.xcd_schedule and config.stage2.band_m > 1):
+            # Cached staging requires every contributor to an N stripe to use
+            # one physical XCD. Keep the selected GEMM tiles and S1 unchanged;
+            # the queue reset is part of the production Stage2 path.
+            if not config.stage2.persist or (self.model_dim // config.stage2.block_n) % 8:
+                raise ValueError("XCD-local staging requires persistent S2 and eight equal N queues")
+            # A queue grid counts total CTAs; the old persistent grid counted
+            # persist_cu CTAs per N stripe. A multiplier of one underfilled
+            # the device (4k: 240 CTAs, versus capacity for 512). Use the
+            # measured multiplier five when converting to XCD queues.
+            config = replace(config, stage2=replace(
+                config.stage2, band_m=8, xcd_schedule=True, queue_grid_mult=5))
         self._active_config = config
         return config
 
-    def _run_fused_stage1(self, x, wts, scales, topk_ids, stream=None, config: Stage1Config | None = None):
+    def _run_fused_stage1(self, x, wts, scales, topk_ids, stream=None, config: Stage1Config | None = None,
+                          *, stage2_work_head=0):
         if stream is None:
             stream = fx.Stream(torch.cuda.current_stream())
         cur_tok = int(x.shape[0])
@@ -306,21 +349,37 @@ class MegaMoEM3:
             scalar_tile_row_base=config.scalar_tile_row_base,
             xcd_schedule=config.xcd_schedule, schedule_audit=config.schedule_audit,
             swiglu_limit=self.swiglu_limit, swiglu_alpha=self.swiglu_alpha,
-            swiglu_beta=self.swiglu_beta)
+            swiglu_beta=self.swiglu_beta, stage2_work_head=stage2_work_head)
         # fmt: on
+        self._s2_topk_ids = topk_ids
         self._s1_active_tile_m = config.sort_block_m
         return self._s1_active_tile_m
 
-    def quantize(self, x_bf16):
-        return per_1x32_mx_quant(x_bf16)
+    def quantize(self, x_bf16, topk_ids=None, *, stream=None):
+        if self.local_reduce:
+            if topk_ids is None:
+                raise ValueError("local reduction quantize requires current topk_ids")
+            result = per_1x32_mx_quant(
+                x_bf16, stream=stream, topk_ids=topk_ids,
+                route_peers=self._route_peers, rank=self.rank,
+                npes=self.world_size, mtpr=self.mtpr, epr=self.epr)
+            self._route_quant_inputs = (*result, topk_ids)
+            return result
+        return per_1x32_mx_quant(x_bf16, stream=stream)
 
     def _run_joint(self, x, scales, wts, topk_ids, run_tokens, stream, slice_output):
         config = self._select_config(run_tokens)
-        self._run_fused_stage1(x, wts, scales, topk_ids, stream=stream, config=config.stage1)
-        return self._run_stage2(run_tokens, stream, slice_output, config)
+        reset_queue = config.stage2.band_m > 1
+        self._run_fused_stage1(
+            x, wts, scales, topk_ids, stream=stream, config=config.stage1,
+            stage2_work_head=self._g2_work_head.data_ptr() if reset_queue else 0)
+        # Same-stream S1 completion orders the reset before any S2 queue claims.
+        return self._run_stage2(run_tokens, stream, slice_output, config,
+                                work_head_reset=reset_queue)
 
-    def _run_stage2(self, run_tokens, stream, slice_output, config: MegaMoEConfig):
-        ret = self._run_fused_stage2(run_tokens, config, stream)
+    def _run_stage2(self, run_tokens, stream, slice_output, config: MegaMoEConfig,
+                    *, work_head_reset=False):
+        ret = self._run_fused_stage2(run_tokens, config, stream, work_head_reset=work_head_reset)
         out_tok = ret[0] if isinstance(ret, (tuple, list)) else ret
         if out_tok is None:
             cfg = self.comb_cfg
@@ -341,10 +400,21 @@ class MegaMoEM3:
             raise ValueError("wts must be contiguous float32")
         if topk_ids.dtype != torch.int32 or not topk_ids.is_contiguous():
             raise ValueError("topk_ids must be contiguous int32")
-        x_q, scales = self.quantize(x_bf16)
+        x_q, scales = self.quantize(
+            x_bf16, topk_ids, stream=stream.cuda_stream if stream is not None else None)
         return self._run_joint(x_q, scales, wts, topk_ids, run_tokens, stream, slice_output)
 
     def forward_prequant(self, x_q, scales, wts, topk_ids, *, stream=None, slice_output=True):
+        """Local reduction requires quantize(x, topk_ids) first on all ranks.
+
+        Its fused route output must precede this call on the same stream.
+        External quantization without that output is unsupported.
+        """
+        if self.local_reduce:
+            prepared = getattr(self, "_route_quant_inputs", ())
+            if len(prepared) != 3 or any(a.data_ptr() != b.data_ptr()
+                    for a, b in zip(prepared, (x_q, scales, topk_ids))):
+                raise ValueError("call quantize(x, topk_ids) before local-reduce forward_prequant")
         run_tokens = int(x_q.shape[0])
         if run_tokens > self.mtpr:
             raise ValueError(f"run_tokens={run_tokens} > max_tok_per_rank={self.mtpr}")
@@ -366,6 +436,17 @@ class MegaMoEM3:
         self._g2_run = run_mega_moe_stage2
         self._g2_work_head = torch.zeros(8 * 64, dtype=torch.int32, device=dev)
         self._g2_schedule_audit = None
+        self._g2_staging = None
+        self._g2_reduce_counters = None
+        if self.local_reduce:
+            self._route_masks = self._s1_op._sym((self.max_recv,), torch.int32)
+            ms.shmem_barrier_all()
+            self._route_peers = self._s1_op._p2p_table(self._route_masks)
+            self._g2_staging = torch.empty(
+                (self.max_recv, self.topk, self.model_dim), dtype=torch.bfloat16, device=dev)
+            # BN >= 64; every successful invocation resets all counters it uses.
+            self._g2_reduce_counters = torch.zeros(
+                self.max_recv * (self.model_dim // 64), dtype=torch.int32, device=dev)
         self._g2_invariants_by_quant = {}
         for p2p_quant in ("none", "fp8_blockwise_1x32"):
             p2p_row_nbytes = (
@@ -386,7 +467,8 @@ class MegaMoEM3:
             1, comb_cfg.hidden_dim, dtype=comb_cfg.combine_dtype, device=dev
         )
 
-    def _run_fused_stage2(self, run_tokens, config: MegaMoEConfig, stream=None):
+    def _run_fused_stage2(self, run_tokens, config: MegaMoEConfig, stream=None,
+                          *, work_head_reset=False):
         comb_op = self.comb_op
         op = self._s1_op
         if stream is None:
@@ -395,11 +477,15 @@ class MegaMoEM3:
         stage2 = config.stage2
         if stage2.band_m > 1:
             with torch.cuda.stream(stream):
-                self._g2_work_head.zero_()
+                # Standalone S2 calls have no preceding S1 to reset their queues.
+                if not work_head_reset:
+                    self._g2_work_head.zero_()
                 if stage2.schedule_audit:
                     assert self._g2_schedule_audit is not None
                     self._g2_schedule_audit.zero_()
         p2p_quant = config.p2p_quant
+        if self.local_reduce and (p2p_quant != "none" or stage2.block_n < 64):
+            raise ValueError("local reduction requires BF16 transport and BN >= 64")
         invariants = self._g2_invariants_by_quant[p2p_quant]
         # fmt: off
         self._g2_run(
@@ -417,11 +503,16 @@ class MegaMoEM3:
             persist_strided=stage2.persist_strided, skew_cu=stage2.skew_cu,
             g2_bf16_lds=stage2.bf16_lds, xcd_schedule=stage2.xcd_schedule,
             band_m=stage2.band_m, schedule_audit=stage2.schedule_audit, queue_grid_mult=stage2.queue_grid_mult,
-            work_head=self._g2_work_head.data_ptr(),
+            work_head=self._g2_work_head.data_ptr(), local_reduce=self.local_reduce,
+            local_reduce_xcd_local=self.local_reduce_xcd_local,
+            staging_ptr=self._g2_staging.data_ptr() if self.local_reduce else 0,
+            counters_ptr=self._g2_reduce_counters.data_ptr() if self.local_reduce else 0,
+            route_masks_ptr=self._route_masks.data_ptr() if self.local_reduce else 0,
             audit_ptr=self._g2_schedule_audit.data_ptr() if stage2.schedule_audit else 0, **invariants)
         # fmt: on
         self._g2_active_block_m = stage2.block_m
         return comb_op.combine_no_stage1(
             self._g2_combine_placeholder, None, None, cur_tok=run_tokens, enable_weights=False,
             stage2_p2p_quant=p2p_quant,
+            stage2_topk_ids=self._s2_topk_ids if self.local_reduce else None,
         )

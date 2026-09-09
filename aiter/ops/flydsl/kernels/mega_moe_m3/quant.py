@@ -19,20 +19,45 @@ GROUP = 32
 _FP8_E4M3_INV_MAX_POS_BITS = 0x3B124925
 
 
-def build_per_1x32_mx_quant_module(n: int):
+def build_per_1x32_mx_quant_module(n: int, *, rank=0, npes=0, mtpr=0, epr=0):
     """Return a @flyc.jit launcher for 1x32 MX quant of a [m, n] bf16 matrix."""
     assert n % 32 == 0, f"n={n} must be divisible by 32"
 
     scale_n = n // GROUP
     inv_max_pos_bits = _FP8_E4M3_INV_MAX_POS_BITS
 
-    @flyc.kernel(name=f"per_1x32_mx_quant_fp8_n{n}")
-    def quant_kernel(x: fx.Tensor, y: fx.Tensor, scale: fx.Tensor, m: fx.Int32):
+    @flyc.kernel(name=f"per_1x32_mx_quant_fp8_n{n}" + (f"_route_r{rank}" if npes else ""))
+    def quant_kernel(x: fx.Tensor, y: fx.Tensor, scale: fx.Tensor, m: fx.Int32,
+                     ids_addr: fx.Int64, route_peers: fx.Int64):
         in_rsrc = buffer_ops.create_buffer_resource(x, max_size=True)
         out_rsrc = buffer_ops.create_buffer_resource(y, max_size=True)
         scale_rsrc = buffer_ops.create_buffer_resource(scale, max_size=True)
 
         group_id = fx.block_idx.x * fx.Int32(BLOCK) + fx.thread_idx.x
+        if const_expr(npes > 0):
+            # First m lanes also preprocess one route each. This shares the
+            # existing quantization launch, with coalesced IDs and mask stores.
+            if group_id < m:
+                ids_rsrc = buffer_ops.create_buffer_resource_from_addr(
+                    ids_addr, num_records_bytes=mtpr * 4 * 4)
+                peers_rsrc = buffer_ops.create_buffer_resource_from_addr(
+                    route_peers, num_records_bytes=npes * 8)
+                ids = fx.Vector(buffer_ops.buffer_load(
+                    ids_rsrc, group_id * 4, vec_width=4, dtype=fx.Int32))
+                for pe in range_constexpr(npes):
+                    mask = fx.Int32(0)
+                    for slot in range_constexpr(4):
+                        match = (ids[slot] >= 0) & (ids[slot] // epr == pe)
+                        mask = mask | match.select(fx.Int32(1 << slot), fx.Int32(0))
+                    peer = buffer_ops.buffer_load(peers_rsrc, pe, vec_width=1, dtype=fx.Int64)
+                    peer = rocdl.readfirstlane(T.i64, fx.Int64(peer).ir_value())
+                    route_rsrc = buffer_ops.create_buffer_resource_from_addr(
+                        peer, num_records_bytes=npes * mtpr * 4)
+                    buffer_ops.buffer_store(mask, route_rsrc, rank * mtpr + group_id,
+                                            cache_modifier=0x13)  # system scope | NT
+                # Complete remote stores before this kernel finishes. Original
+                # S1 dispatch handshakes then order every source before S2.
+                rocdl.s_waitcnt(0)
         if group_id < m * fx.Int32(scale_n):
             in_dw = group_id * fx.Int32(GROUP * 2 // 4)
             act = []
@@ -89,9 +114,11 @@ def build_per_1x32_mx_quant_module(n: int):
         scale: fx.Tensor,
         m: fx.Int32,
         grid_blocks: fx.Int32,
+        ids_addr: fx.Int64,
+        route_peers: fx.Int64,
         stream: fx.Stream,
     ):
-        quant_kernel(x, y, scale, m).launch(
+        quant_kernel(x, y, scale, m, ids_addr, route_peers).launch(
             grid=(fx.Int64(grid_blocks), 1, 1), block=(BLOCK, 1, 1), stream=stream
         )
 
@@ -101,16 +128,17 @@ def build_per_1x32_mx_quant_module(n: int):
 _LAUNCHER_CACHE = {}
 
 
-def _get_launcher(n: int):
-    key = int(n)
+def _get_launcher(n: int, *, rank=0, npes=0, mtpr=0, epr=0):
+    key = (int(n), rank, npes, mtpr, epr)
     launcher = _LAUNCHER_CACHE.get(key)
     if launcher is None:
-        launcher = build_per_1x32_mx_quant_module(n)
+        launcher = build_per_1x32_mx_quant_module(n, rank=rank, npes=npes, mtpr=mtpr, epr=epr)
         _LAUNCHER_CACHE[key] = launcher
     return launcher
 
 
-def per_1x32_mx_quant(x, stream=None):
+def per_1x32_mx_quant(x, stream=None, *, topk_ids=None, route_peers=None,
+                      rank=0, npes=0, mtpr=0, epr=0):
     """Quantize BF16 rows to MXFP8 E4M3 payloads with E8M0 scales.
 
     The shared exponent is rounded UP (ceil_pow2(amax/448)): adding 0x7FFFFF
@@ -128,5 +156,13 @@ def per_1x32_mx_quant(x, stream=None):
     fx_stream = fx.Stream(
         stream if stream is not None else torch.cuda.current_stream().cuda_stream
     )
-    _get_launcher(n)(x, y, scale, int(m), int(grid_blocks), stream=fx_stream)
+    if npes:
+        if (npes != 4 or epr <= 0 or m > mtpr or topk_ids is None
+                or topk_ids.shape != (m, 4) or topk_ids.dtype != torch.int32
+                or not topk_ids.is_contiguous() or route_peers is None):
+            raise ValueError("route output requires EP4, contiguous int32 topk4 IDs and peer table")
+    _get_launcher(n, rank=rank, npes=npes, mtpr=mtpr, epr=epr)(
+        x, y, scale, int(m), int(grid_blocks),
+        fx.Int64(topk_ids.data_ptr() if npes else 0),
+        fx.Int64(route_peers.data_ptr() if npes else 0), stream=fx_stream)
     return y, scale

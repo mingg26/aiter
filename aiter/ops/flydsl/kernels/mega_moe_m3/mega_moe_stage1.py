@@ -85,7 +85,7 @@ def compile_mega_moe_stage1(
     fp8_b_waitcnt: bool = False,
     scalar_tile_row_base: bool = False,
     prefetch_a_operand: bool = False,
-    xcd_schedule: bool = False, schedule_audit: bool = False,
+    xcd_schedule: bool = False, schedule_audit: bool = False, reset_stage2_queue: bool = False,
 ):
     arch = str(get_rocm_arch() or "")
     if not arch.startswith("gfx95"):
@@ -221,6 +221,8 @@ def compile_mega_moe_stage1(
         + ("_trbu1" if scalar_tile_row_base else "")
         + ("_xq1" if xcd_schedule else "")
         + ("_qa1" if schedule_audit else "")
+        + "_scratchfix1"
+        + ("_s2qr1" if reset_stage2_queue else "")
     )
 
     @flyc.kernel(name=kernel_name, known_block_size=[TOTAL_THREADS, 1, 1])
@@ -229,7 +231,7 @@ def compile_mega_moe_stage1(
         sorted_token_ids: fx.Tensor, expert_ids: fx.Tensor, num_valid_ids: fx.Tensor, out_scale: fx.Tensor,
         tokens: fx.Int32, addr_disp: fx.Int64, i32_cur_tok: fx.Int32, addr_in_tok: fx.Int64,
         addr_in_idx: fx.Int64, addr_in_wts: fx.Int64, addr_in_sc: fx.Int64, addr_parity: fx.Int64,
-        addr_expected: fx.Int64,
+        addr_expected: fx.Int64, addr_stage2_work_head: fx.Int64,
     ):
         tid = fx.thread_idx.x
         lds = fx.SharedAllocator().allocate(SplitSharedStorage if split_a_lds else SharedStorage).peek()
@@ -307,6 +309,13 @@ def compile_mega_moe_stage1(
                 )
                 comm_ops.fence_system_acquire()
             if tid == fx.Int32(0):
+                if const_expr(reset_stage2_queue):
+                    # Only the eight queue heads are live; each is 256 B apart.
+                    # The existing wait/release below completes these stores.
+                    # S2 runs after this entire kernel on the same stream.
+                    s2_head_rsrc = _make_buffer_from_addr(addr_stage2_work_head, fx.Int32)
+                    for queue in range_constexpr(8):
+                        _buffer_store(s2_head_rsrc, fx.Int32(queue * 64), fx.Int32(0), fx.Int32)
                 work_head_rsrc = _make_buffer_from_addr(a_work_head, fx.Int32)
                 for shard in range_constexpr(8):
                     _buffer_store(work_head_rsrc, fx.Int32(shard * 16), fx.Int32(0), fx.Int32)
@@ -525,6 +534,9 @@ def compile_mega_moe_stage1(
                 fx.ptr_store(Vec.from_elements([work], fx.Int32), work_scratch)
             fx.barrier()
             work = Vec(work_scratch_view.load())[0]
+            # All waves must consume the ticket before the leader overwrites
+            # this LDS word with flags. Otherwise a late wave can use 3 as work.
+            fx.barrier()
             if tid == fx.Int32(0):
                 # bit0 = keep drawing tickets, bit1 = this ticket is a real tile.
                 # They differ only for a padded band's tail: those tickets must be
@@ -545,6 +557,9 @@ def compile_mega_moe_stage1(
                 fx.ptr_store(Vec.from_elements([flags], fx.Int32), work_scratch)
             fx.barrier()
             flags = Vec(work_scratch_view.load())[0]
+            # The word aliases GEMM A LDS and the next iteration's ticket.
+            # Finish every wave's flags load before either reuses that storage.
+            fx.barrier()
             if (flags & fx.Int32(2)) != fx.Int32(0):
                 if const_expr(not direct_fixed_slot):
                     comm_ops.fence_system_acquire()
@@ -571,11 +586,12 @@ def compile_mega_moe_stage1(
         sorted_token_ids: fx.Tensor, expert_ids: fx.Tensor, num_valid_ids: fx.Tensor, out_scale: fx.Tensor,
         tokens: fx.Int32, addr_disp: fx.Int64, i32_cur_tok: fx.Int32, addr_in_tok: fx.Int64,
         addr_in_idx: fx.Int64, addr_in_wts: fx.Int64, addr_in_sc: fx.Int64, addr_parity: fx.Int64,
-        addr_expected: fx.Int64, stream: fx.Stream,
+        addr_expected: fx.Int64, addr_stage2_work_head: fx.Int64, stream: fx.Stream,
     ):
         kernel(
             out, x, w, scale_x, scale_w, sorted_token_ids, expert_ids, num_valid_ids, out_scale, tokens,
             addr_disp, i32_cur_tok, addr_in_tok, addr_in_idx, addr_in_wts, addr_in_sc, addr_parity, addr_expected,
+            addr_stage2_work_head,
             value_attrs={
                 "rocdl.waves_per_eu": waves_per_eu_hint,
                 "rocdl.flat_work_group_size": f"{TOTAL_THREADS},{TOTAL_THREADS}",
@@ -594,7 +610,7 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
     use_tile_resource=True, waves_per_eu_hint=2,
     b_nt=-1, work_shards=None, external_grouping=None, external_counting=None,
     payload_chunk_rows=0, payload_tile_ready=False, band_m=1, swiglu_limit=0.0,
-    swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, xcd_schedule=False, schedule_audit=False):
+    swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, xcd_schedule=False, schedule_audit=False, stage2_work_head=0):
     launch = compile_mega_moe_stage1(
         model_dim=model_dim, inter_dim=inter_dim, rank=rank, experts_per_rank=experts_per_rank,
         fuse_npes=fuse_npes, fuse_topk=fuse_topk, fuse_cap=fuse_cap, fuse_mtpr=fuse_mtpr,
@@ -613,11 +629,12 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
         prefetch_a_operand=prefetch_a_operand,
         scalar_tile_row_base=scalar_tile_row_base,
         xcd_schedule=xcd_schedule, schedule_audit=schedule_audit,
+        reset_stage2_queue=bool(stage2_work_head),
         swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
     )
     _run_compiled(
         launch, out, x, w, scale_x, scale_w, sorted_token_ids, expert_ids, num_valid_ids, out_scale,
         tokens, addr_disp, i32_cur_tok, addr_in_tok, addr_in_idx, addr_in_wts, addr_in_sc,
-        addr_parity, addr_expected, stream,
+        addr_parity, addr_expected, fx.Int64(stage2_work_head), stream,
     )
 # fmt: on

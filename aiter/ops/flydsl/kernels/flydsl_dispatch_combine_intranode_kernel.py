@@ -39,7 +39,7 @@ from .communication_ops_utils import (
 )
 
 # Bump when generated kernel shape changes.
-_DISPATCH_COMBINE_JIT_SCHEMA_VERSION = "v10-stage2-blockwise-fp8-scale-prefetch"
+_DISPATCH_COMBINE_JIT_SCHEMA_VERSION = "v11-stage2-bf16-local-reduce"
 
 # Stage-3 switches from narrow step=64 to wide step=128/256 above this threshold.
 _S3_WIDE_PATH_THRESHOLD_I32 = 895
@@ -434,6 +434,7 @@ def make_combine_kernel(
     skip_stage1: bool = False,
     fp8_direct_cast: bool = False,
     blockwise_fp8_transport: bool = False,
+    local_reduce_epr: int = 0,
     max_recv: int | None = None,
 ):
     """Build the intranode combine ``@flyc.kernel``.
@@ -460,6 +461,11 @@ def make_combine_kernel(
         raise ValueError(
             "blockwise_fp8_transport and fp8_direct_cast are mutually exclusive"
         )
+    if local_reduce_epr:
+        if not (skip_stage1 and npes == experts_per_token == 4
+                and data_type == torch.bfloat16 and not enable_weights
+                and not zero_copy and not fp8_direct_cast and not blockwise_fp8_transport):
+            raise ValueError("rank-local combine requires fused EP4/topk4 BF16 input")
     _xfer_bf16_to_fp8 = fp8_direct_cast
     _transport_dtype = torch.float8_e4m3fn if _xfer_bf16_to_fp8 else data_type
 
@@ -649,6 +655,7 @@ def make_combine_kernel(
         addr_inp_packed_recv_x: fx.Int64,  # expert-major token buffer
         addr_inp_disp_tok_map: fx.Int64,  # dispTokToEpSlotMap (i64[max_recv * top_k])
         addr_inp_disp_wts: fx.Int64,  # dispatch output weights (f32[max_recv * top_k])
+        addr_stage2_topk_ids: fx.Int64,
         cur_rank_num_token: fx.Int32,  # local token count m_local; Stage-3 loop bound
     ):
         tid = fx.thread_idx.x
@@ -954,7 +961,27 @@ def make_combine_kernel(
             expert_scale_rsrcs = []
             expert_vlds = []
 
-            if const_expr(skip_stage1 and not zero_copy):
+            if const_expr(local_reduce_epr > 0):
+                route_rsrc = create_buffer_resource_from_addr(addr_stage2_topk_ids)
+                peer_mask = fx.Int32(0)
+                for k_slot in range_constexpr(experts_per_token):
+                    eid = buffer_load(route_rsrc, tok_id * experts_per_token + k_slot,
+                                      vec_width=1, dtype=T.i32)
+                    pe = eid // local_reduce_epr
+                    valid_route = (eid >= 0) & (pe < npes)
+                    pe = valid_route.select(pe, 0)
+                    peer_mask = peer_mask | valid_route.select(fx.Int32(1) << pe, 0)
+                peer_mask = fx.Int32(readfirstlane(T.i32, peer_mask.ir_value()))
+                for source_rank in range_constexpr(npes):
+                    present = (peer_mask & (1 << source_rank)) != 0
+                    addr = addr_shmem_tok + fx.Int64(tok_id * npes + source_rank) * nbytes
+                    # A zero-length resource suppresses the memory access itself;
+                    # absent slots may contain NaNs or data from earlier routing.
+                    expert_rsrcs.append(create_buffer_resource_from_addr(
+                        _wave_uniform_i64(addr),
+                        num_records_bytes=present.select(fx.Int32(nbytes), fx.Int32(0))))
+                    expert_vlds.append(present)
+            elif const_expr(skip_stage1 and not zero_copy):
                 # Fused-upstream Stage 3: caller plain-stored per-(tok_id, k_slot)
                 # partials (no tok_map decode; zero_copy excluded, keeps decode).
                 for k_slot in range_constexpr(experts_per_token):
@@ -1315,6 +1342,7 @@ def make_combine_jit(
     skip_stage1=False,
     fp8_direct_cast: bool = False,
     blockwise_fp8_transport: bool = False,
+    local_reduce_epr: int = 0,
     max_recv=None,
 ):
     """Build the JIT launcher for ``make_combine_kernel``. ``data_type`` is the
@@ -1339,6 +1367,7 @@ def make_combine_jit(
         skip_stage1=skip_stage1,
         fp8_direct_cast=fp8_direct_cast,
         blockwise_fp8_transport=blockwise_fp8_transport,
+        local_reduce_epr=local_reduce_epr,
         max_recv=max_recv,
     )
 
@@ -1352,6 +1381,7 @@ def make_combine_jit(
     _key_skip_s1 = skip_stage1
     _key_fp8_direct_cast = bool(fp8_direct_cast)
     _key_blockwise_fp8_transport = bool(blockwise_fp8_transport)
+    _key_local_reduce_epr = local_reduce_epr
     _key_max_recv = max_recv if max_recv is not None else npes * max_tok_per_rank
     # See dispatch launcher for the ``str(torch.dtype)`` rationale.
     _key_data_type = str(data_type)
@@ -1377,6 +1407,7 @@ def make_combine_jit(
         addr_inp_packed_recv_x: fx.Int64,
         addr_inp_disp_tok_map: fx.Int64,
         addr_inp_disp_wts: fx.Int64,
+        addr_stage2_topk_ids: fx.Int64,
         cur_rank_num_token: fx.Int32,
         stream: Stream = Stream(None),  # noqa: B008
     ):
@@ -1392,6 +1423,7 @@ def make_combine_jit(
             _key_skip_s1,
             _key_fp8_direct_cast,
             _key_blockwise_fp8_transport,
+            _key_local_reduce_epr,
             _key_max_recv,
             _key_data_type,
             _key_schema_version,
@@ -1415,6 +1447,7 @@ def make_combine_jit(
             addr_inp_packed_recv_x,
             addr_inp_disp_tok_map,
             addr_inp_disp_wts,
+            addr_stage2_topk_ids,
             cur_rank_num_token,
         ).launch(
             grid=(block_num, 1, 1),
