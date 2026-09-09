@@ -109,10 +109,9 @@ def compile_mega_moe_stage1(
     assert not payload_tile_ready or payload_chunk_rows > 0
     BAND_M = int(band_m)
     assert BAND_M >= 1, "band_m is a count of m_tiles per reuse band"
-    # See build_fused_gemm1's _decode. band_m > 1 needs a per-tile payload wait,
-    # because a band's m_tiles are visited before its n_tiles complete and the
-    # coarser per-expert wait would gate the whole band on the whole expert.
-    assert BAND_M == 1 or payload_tile_ready, "band_m > 1 requires payload_tile_ready"
+    # The tile-ready schedule uses GEMM's band decoder. Small XCD bands
+    # instead map tickets to canonical m*N+n indices and retain expert waits.
+    assert BAND_M == 1 or payload_tile_ready or xcd_schedule, "finite small-XCD bands retain per-expert waits"
     planner_blocks = 1
     # Keep the fused grid on an exact CU multiple instead of appending control/producer CTAs as a tail.
     grid_x = num_cu * grid_mult - planner_blocks - dispatch_blocks
@@ -133,11 +132,18 @@ def compile_mega_moe_stage1(
     if work_shards is not None:
         WORK_SHARDS = int(work_shards)
     assert WORK_SHARDS in (1, 2, 4, 8)
+    # Compile-time scheduling choice; both paths share dispatch and GEMM.
+    small_xcd = xcd_schedule and not payload_tile_ready
     if xcd_schedule:
-        assert WORK_SHARDS == 8 and N_TILES % 8 == 0
-        assert payload_tile_ready and BAND_M > 1
+        assert WORK_SHARDS == 8
+        if small_xcd:
+            assert (sort_block_m, tile_n, tile_k, N_TILES) == (64, 512, 256, 12)
+            assert fuse_mtpr in (256, 512, 1024)
+            assert not fixed_slot_dispatch
+        else:
+            assert N_TILES % 8 == 0 and payload_tile_ready and BAND_M > 1
     if schedule_audit:
-        assert sort_block_m == 128 and tile_n == 256
+        assert small_xcd or (sort_block_m == 128 and tile_n == 256)
 
     a_lds_size = sort_block_m * A_K_STEP_BYTES
     a_lds_i32 = a_lds_size // 4
@@ -221,6 +227,7 @@ def compile_mega_moe_stage1(
         + ("_trbu1" if scalar_tile_row_base else "")
         + ("_xq1" if xcd_schedule else "")
         + ("_qa1" if schedule_audit else "")
+        + ("_sxcd1" if small_xcd else "")
         + "_scratchfix1"
         + ("_s2qr1" if reset_stage2_queue else "")
     )
@@ -453,7 +460,7 @@ def compile_mega_moe_stage1(
             n_tiles=N_TILES, expert_offset=fz_rank * fz_epr, b_cache_modifier=b_cache_modifier,
             swizzle_a=swizzle_a, pipe_weights=pipe_weights, mfma_amajor=mfma_amajor,
             async_a_copy=async_a_copy, use_tile_resource=use_tile_resource,
-            band_m=BAND_M,
+            band_m=1 if small_xcd else BAND_M,
             packed_a_scale=packed_a_scale,
             unroll_a_pingpong=unroll_a_pingpong,
             split_a_lds=split_a_lds,
@@ -473,7 +480,7 @@ def compile_mega_moe_stage1(
 
         num_valid = _buffer_load(nv_rsrc, fx.Int32(0), fx.Int32)
         num_m_tiles = ceildiv(num_valid, fx.Int32(sort_block_m))
-        if const_expr(BAND_M == 1):
+        if const_expr(BAND_M == 1 or small_xcd):
             total_work = num_m_tiles * fx.Int32(N_TILES)
         else:
             # Round the index space up to whole bands so _decode stays a
@@ -522,7 +529,20 @@ def compile_mega_moe_stage1(
                         a_work_head + fx.Int64(work_shard) * fx.Int64(64), fx.Int32(1)
                     )
                 )
-                if const_expr(xcd_schedule):
+                if const_expr(small_xcd):
+                    # Keep home=(expert*12+n)%8 unchanged, but alternate
+                    # the two local N slots after each finite M band.
+                    # Return canonical m*N+n indices to the unchanged GEMM.
+                    m_index = (local_work // fx.Int32(2 * BAND_M)) * fx.Int32(BAND_M) + local_work % fx.Int32(BAND_M)
+                    safe_m = (m_index < num_m_tiles).select(m_index, fx.Int32(0))
+                    e_index = expert_of_flat(safe_m * fx.Int32(N_TILES))
+                    n_first = (work_shard + e_index * fx.Int32(4)) & fx.Int32(7)
+                    n_index = n_first + ((local_work // fx.Int32(BAND_M)) % fx.Int32(2)) * fx.Int32(8)
+                    mapped_work = m_index * fx.Int32(N_TILES) + n_index
+                    valid_or_skip = ((n_index < fx.Int32(N_TILES)) & (m_index < num_m_tiles)).select(mapped_work, total_work)
+                    ticket_count = ceildiv(num_m_tiles, fx.Int32(BAND_M)) * fx.Int32(2 * BAND_M)
+                    work = (local_work < ticket_count).select(valid_or_skip, total_work + fx.Int32(1))
+                elif const_expr(xcd_schedule):
                     # Each XCD owns three N panels in the H6144/I3072 case.
                     # Within a ready M band, adjacent claims reuse the B panel.
                     local_band = local_work // fx.Int32(BAND_M * (N_TILES // 8))
@@ -544,7 +564,10 @@ def compile_mega_moe_stage1(
                 # counter is monotonic -- retiring on one would drop every tile
                 # behind it.
                 in_range = (work < total_work).select(fx.Int32(1), fx.Int32(0))
-                if const_expr(BAND_M == 1):
+                if const_expr(small_xcd):
+                    keep_drawing = (work <= total_work).select(fx.Int32(1), fx.Int32(0))
+                    flags = keep_drawing | (in_range << fx.Int32(1))
+                elif const_expr(BAND_M == 1):
                     flags = in_range | (in_range << fx.Int32(1))
                 else:
                     valid = (_m_tile_of_flat(work) < num_m_tiles).select(
@@ -566,7 +589,7 @@ def compile_mega_moe_stage1(
                 if const_expr(schedule_audit):
                     if tid == fx.Int32(0):
                         audit_m = _m_tile_of_flat(work)
-                        audit_n = (work % fx.Int32(BAND_M * N_TILES)) // fx.Int32(BAND_M)
+                        audit_n = work % fx.Int32(N_TILES) if const_expr(small_xcd) else (work % fx.Int32(BAND_M * N_TILES)) // fx.Int32(BAND_M)
                         audit_index = (audit_m * fx.Int32(N_TILES) + audit_n) * fx.Int32(3)
                         audit_addr = _disp_ptr(DispatchSlot.SCHEDULE_AUDIT)
                         comm_ops.atomic_add_agent(audit_addr + fx.Int64(audit_index) * fx.Int64(4), fx.Int32(1))

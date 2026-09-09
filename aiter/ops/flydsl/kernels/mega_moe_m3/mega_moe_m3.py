@@ -252,6 +252,8 @@ class MegaMoEM3:
         # Small-token EP4 measurements favor the existing wide tile/B pipe
         # with fewer control CTAs and one CU-sized grid. Smaller tiles and
         # the two-CTA variant lose despite eliminating register spills.
+        # Finite M bands rotate the 12 N panels across eight XCD queues;
+        # GEMM retains canonical indices and the per-expert readiness wait.
         if ((self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk)
                 == (4, 32, 6144, 3072, 4)
                 and tokens in (256, 512, 1024) and self.mtpr == tokens
@@ -261,7 +263,9 @@ class MegaMoEM3:
                 and config.p2p_quant == "none"
                 and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())):
             config = replace(config, stage1=replace(
-                config.stage1, grid_mult=1, num_dispatch_cu=32))
+                config.stage1, grid_mult=1, num_dispatch_cu=32,
+                work_shards=8, xcd_schedule=True, b_nt=3 if tokens == 256 else 0,
+                band_m={256: 2, 512: 4, 1024: 1}[tokens]))
         # The measured local-reduce optimum at the 1024-token M3 point uses
         # the same M*N tile area as the generic preset, but swaps M32/N256 for
         # M64/N128 and halves K. It raises the resource-limited occupancy from

@@ -59,8 +59,8 @@ class Stage1Config:
     prefetch_a_operand: bool = False
     xcd_schedule: bool = False
     schedule_audit: bool = False
-    # m_tiles per GEMM1 reuse band; 1 = upstream's n_tile-fast order. See
-    # build_fused_gemm1._decode in gemm1.py.
+    # M tiles per reuse band. Small XCD schedules map bands to canonical
+    # GEMM indices; tile-ready schedules use build_fused_gemm1._decode.
     band_m: int = 1
 
 
