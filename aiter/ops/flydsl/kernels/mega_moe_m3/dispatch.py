@@ -753,8 +753,13 @@ def emit_dispatch_group(
         if tid == fx.Int32(0):
             comm_ops.fence_agent_release()
             comm_ops.atomic_add_agent(a_group_done, fx.Int32(1))
-            mori_shmem.int32_wait_until_equals(a_pair_order_ready + fx.Int64(parity) * fx.Int64(4), expected)
-            comm_ops.fence_agent_acquire()
+    # Grouping uses a contiguous prefix of producer slots, but payload CTAs
+    # are interleaved by destination. With skewed routing, a payload producer
+    # can lie outside that prefix and must still wait for the route table.
+    # PLAN_READY only publishes the destination layout, not PAIR_ORDER.
+    if tid == fx.Int32(0):
+        mori_shmem.int32_wait_until_equals(a_pair_order_ready + fx.Int64(parity) * fx.Int64(4), expected)
+        comm_ops.fence_agent_acquire()
     fx.barrier()
 
 
