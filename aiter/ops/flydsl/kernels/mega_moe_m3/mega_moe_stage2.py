@@ -311,7 +311,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     persist: bool = False, cu_num: int = 0, has_pad: bool = False, g2_bhoist=None, g2_ascale_pf=None,
     g2_spart=None, persist_strided: bool = False, g2_bf16_lds: bool = False, p2p_quant_type: str = "none",
     fixed_slot_dispatch: bool = False, skew_cu: int = 0,
-    xcd_schedule: bool = False, band_m: int = 1, schedule_audit: bool = False, queue_grid_mult: int = 1, local_reduce: bool = False, local_reduce_xcd_local: bool = False, shared_l2: bool = False):
+    xcd_schedule: bool = False, band_m: int = 1, schedule_audit: bool = False, queue_grid_mult: int = 1, local_reduce: bool = False, local_reduce_xcd_local: bool = False, shared_l2: bool = False, shared_schedule: str = "tail"):
 # fmt: on
     """Compile fused GEMM2 and weighted cross-rank P2P scatter."""
     if local_reduce:
@@ -346,17 +346,19 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     if local_reduce_xcd_local:
         assert local_reduce and persist and band_m > 1 and xcd_schedule, (
             "XCD-local staging requires local reduction and physical-XCD queues")
+    if shared_schedule not in ("tail", "early2"):
+        raise ValueError(f"unsupported shared_schedule={shared_schedule!r}")
     if shared_l2:
         assert (model_dim, inter_dim) == (6144, 3072)
         assert (max_tok, BM, BN, BK, SBM) in ((256, 32, 128, 256, 64), (8192, 64, 128, 128, 128))
         assert persist and xcd_schedule and band_m > 1 and max_tok % (BM * band_m) == 0
         assert p2p_quant_type == "none" and not has_pad
-    # Use the validated early2 order only for the EP8 b256 shared geometry.
-    shared_early2 = (
-        shared_l2 and not local_reduce
-        and (npes, max_tok, BM, BN, BK, SBM, band_m, cu_num, queue_grid_mult)
-        == (8, 256, 32, 128, 256, 64, 8, 128, 5)
-    )
+    shared_early2 = shared_l2 and shared_schedule == "early2"
+    if shared_early2:
+        geometry = (npes, max_tok, BM, BN, BK, SBM, band_m, cu_num, queue_grid_mult)
+        if not ((not local_reduce and geometry == (8, 256, 32, 128, 256, 64, 8, 128, 5))
+                or (local_reduce_xcd_local and geometry == (8, 8192, 64, 128, 128, 128, 16, 240, 5))):
+            raise ValueError("early2 requires a validated EP8 shared L2 geometry")
     log2_max_tok = max_tok.bit_length() - 1
     mask_max_tok = max_tok - 1
     N_OUT = model_dim
@@ -562,13 +564,21 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
             # Reuse compute LDS only between tiles, with WG barriers before
             # overwriting previous epilogue data and before reusing claim storage.
             claim_ptr = lds_typed_ptr(fx.Int32(0), T.i32)
-            # Each CTA visits both sets of eight queues. A quarter visit shared
-            # first; all retain one exhausted claim per shared queue, preserving
-            # the 48 valid + 640 exhausted claims per graph replay epoch.
-            while attempt < fx.Int32(16 if shared_early2 else (1 if local_reduce_xcd_local and not shared_l2 else 8)):
+            # Every CTA visits all shared queues once, preserving their epoch.
+            # XCD-local routed work must only visit home; other routed work may
+            # visit all eight queues. The block-ID rule chooses shared-first CTAs.
+            while attempt < fx.Int32((9 if local_reduce_xcd_local else 16) if shared_early2 else (1 if local_reduce_xcd_local and not shared_l2 else 8)):
                 if const_expr(shared_early2):
-                    shared_active = (attempt < fx.Int32(8)) == shared_first
-                queue = (home + attempt) % fx.Int32(8)
+                    if const_expr(local_reduce_xcd_local):
+                        phase_end = shared_first.select(fx.Int32(8), fx.Int32(1))
+                        shared_active = (attempt < phase_end) == shared_first
+                        shared_attempt = shared_first.select(attempt, attempt - fx.Int32(1))
+                        queue = shared_active.select((home + shared_attempt) % fx.Int32(8), home)
+                    else:
+                        shared_active = (attempt < fx.Int32(8)) == shared_first
+                        queue = (home + attempt) % fx.Int32(8)
+                else:
+                    queue = (home + attempt) % fx.Int32(8)
                 fx.barrier()
                 if tx_i32 == fx.Int32(0):
                     claim = fx.Int32(0)
@@ -734,7 +744,7 @@ def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cu
     HIDDEN_MAX, INTER_MAX, cu_num, BN=256, BK=256, use_nt=True, g2_bhoist=True,
     g2_ascale_pf=True, g2_spart=402, persist=False, persist_cu=0, persist_strided=False,
     g2_bf16_lds=False, p2p_quant_type="none", fixed_slot_dispatch=False, skew_cu=0,
-    xcd_schedule=False, band_m=1, schedule_audit=False, work_head=0, audit_ptr=0, queue_grid_mult=1, local_reduce=False, staging_ptr=0, counters_ptr=0, route_masks_ptr=0, local_reduce_xcd_local=False, shared_l2=0):
+    xcd_schedule=False, band_m=1, schedule_audit=False, work_head=0, audit_ptr=0, queue_grid_mult=1, local_reduce=False, staging_ptr=0, counters_ptr=0, route_masks_ptr=0, local_reduce_xcd_local=False, shared_l2=0, shared_schedule="tail"):
     # fmt: on
     """Compile or reuse one fused Stage2 configuration and launch it."""
     if band_m > 1:
@@ -750,7 +760,7 @@ def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cu
         g2_spart=g2_spart, persist_strided=persist_strided, g2_bf16_lds=g2_bf16_lds,
         p2p_quant_type=p2p_quant_type, fixed_slot_dispatch=fixed_slot_dispatch, skew_cu=skew_cu,
         xcd_schedule=xcd_schedule, band_m=band_m, schedule_audit=schedule_audit, queue_grid_mult=queue_grid_mult, local_reduce=local_reduce,
-        local_reduce_xcd_local=local_reduce_xcd_local, shared_l2=bool(shared_l2),
+        local_reduce_xcd_local=local_reduce_xcd_local, shared_l2=bool(shared_l2), shared_schedule=shared_schedule,
     )
     max_m_blocks = (row_capacity + BM - 1) // BM
     grid_blocks = launch_cu_num if persist else max_m_blocks

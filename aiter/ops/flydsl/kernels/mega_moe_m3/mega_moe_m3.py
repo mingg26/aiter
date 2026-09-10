@@ -288,7 +288,7 @@ class MegaMoEM3:
                 stage2=Stage2Config(
                     block_m=32, block_n=128, block_k=256, persist=True,
                     persist_cu=128, use_nt=False, queue_grid_mult=5,
-                    xcd_schedule=True, band_m=8),
+                    xcd_schedule=True, band_m=8, shared_schedule="early2"),
                 p2p_quant="none")
         # Best measured EP4 M3 8192-token stage configurations. S1 retains
         # M128 and double-stage B; its two-CTA alternatives regress. S2 uses
@@ -630,6 +630,7 @@ class MegaMoEM3:
             persist_strided=stage2.persist_strided, skew_cu=stage2.skew_cu,
             g2_bf16_lds=stage2.bf16_lds, xcd_schedule=stage2.xcd_schedule,
             band_m=stage2.band_m, schedule_audit=stage2.schedule_audit, queue_grid_mult=stage2.queue_grid_mult,
+            shared_schedule=stage2.shared_schedule,
             work_head=self._g2_work_head.data_ptr(), local_reduce=self.local_reduce,
             local_reduce_xcd_local=self.local_reduce_xcd_local,
             staging_ptr=self._g2_staging.data_ptr() if self.local_reduce else 0,

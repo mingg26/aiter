@@ -90,6 +90,12 @@ class Stage2Config:
     xcd_schedule: bool = False
     band_m: int = 1
     schedule_audit: bool = False
+    # Compile-time shared L2 task order; ignored when shared L2 is disabled.
+    shared_schedule: str = "tail"
+
+    def __post_init__(self):
+        if self.shared_schedule not in ("tail", "early2"):
+            raise ValueError(f"unsupported shared_schedule={self.shared_schedule!r}")
 
 
 @dataclass(frozen=True, slots=True)
