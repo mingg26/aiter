@@ -1290,6 +1290,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
         skip_stage1,
         stage2_p2p_quant=None,
         stage2_topk_ids=None,
+        shared_input=False,
     ):
         """Launch regular or skip-stage1 combine."""
         cfg = self.cfg
@@ -1324,6 +1325,12 @@ class FlyDSLDispatchCombineIntraNodeOp:
                     or tuple(stage2_topk_ids.shape) != (int(cur_tok), cfg.num_experts_per_token)):
                 raise ValueError("stage2_topk_ids must be contiguous local int32[cur_tok, topk]")
             local_reduce_epr = cfg.num_experts_per_rank
+        if shared_input:
+            if not (skip_stage1 and p2p_quant == "none" and not enable_weights
+                    and not cfg.zero_copy and not cfg.enable_std_moe and not fp8_dc
+                    and input.dtype == torch.bfloat16 and input.is_contiguous()
+                    and tuple(input.shape) == (int(cur_tok), cfg.hidden_dim)):
+                raise ValueError("shared_input requires local contiguous BF16[cur_tok, hidden] and fused BF16 combine")
         if skip_stage1:
             # placeholder input: pre-cast to fp8 so the kernel dtype + out view match.
             if fp8_dc and input.dtype != torch.float8_e4m3fn:
@@ -1385,6 +1392,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
             wpb,
             bool(skip_stage1),
             local_reduce_epr,
+            bool(shared_input),
         )
         fn = self._comb_jit_cache.get(key)
         if fn is None:
@@ -1404,6 +1412,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
                 fp8_direct_cast=bool(fp8_dc),
                 blockwise_fp8_transport=bool(blockwise_fp8),
                 local_reduce_epr=local_reduce_epr,
+                shared_input=bool(shared_input),
                 # Must match dispatch's encoding stride so tok_map decode lines up.
                 max_recv=self._effective_max_recv,
             )
@@ -1464,6 +1473,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
         enable_weights: bool = True,
         stage2_p2p_quant=None,
         stage2_topk_ids=None,
+        shared_input=False,
     ):
         """Run combine after fused GEMM2 has populated the P2P input."""
         if not type(self)._ENABLE_COMBINE_NO_STAGE1:
@@ -1483,6 +1493,7 @@ class FlyDSLDispatchCombineIntraNodeOp:
             skip_stage1=True,
             stage2_p2p_quant=stage2_p2p_quant,
             stage2_topk_ids=stage2_topk_ids,
+            shared_input=shared_input,
         )
 
     def get_dispatch_src_token_pos(self):

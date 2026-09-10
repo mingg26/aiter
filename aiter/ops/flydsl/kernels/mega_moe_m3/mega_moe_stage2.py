@@ -34,6 +34,30 @@ from .gemm2 import (
 _BUFFER_OFFSET_ABI_BYTES = 1 << 31
 
 
+def shared_l2_epilog(lds_base, accm, m_block, n_block, wave, lane, output, *, BM, BN, N_OUT, max_tok):
+    """Local, unweighted BF16 output; no peer publication or reduction tickets."""
+    fx.barrier()
+    dst = lds_typed_ptr(lds_base, T.bf16, align=2)
+    for i in range_constexpr(BM // 16):
+        row = i * 16 + (lane // 16) * 4
+        for j in range_constexpr(BN // 64):
+            col = wave * (BN // 4) + j * 16 + lane % 16
+            vec = fx.Vector(accm[i][j])
+            for v in range_constexpr(4):
+                dst[(row + v) * BN + col] = fx.BFloat16(vec[v])
+    fx.barrier()
+    rdst = buffer_ops.create_buffer_resource_from_addr(output, num_records_bytes=max_tok * N_OUT * 2)
+    active = lane < fx.Int32(BN // 8)
+    col = active.select(lane * fx.Int32(8), fx.Int32(0))
+    for i in range_constexpr(BM // 4):
+        row = wave + i * 4
+        value = fx.Vector(lds_vec_load(lds_base, (row * BN + col) * 2,
+            fx.Vector.make_type(8, fx.BFloat16), fx.BFloat16, align=16))
+        off = ((m_block * BM + row) * N_OUT + n_block * BN + col) * 2
+        off = active.select(off, fx.Int32(max_tok * N_OUT * 2))
+        buffer_ops.buffer_store(value.bitcast(fx.Int32).ir_value(), rdst, off, offset_is_bytes=True)
+
+
 @flyc.jit
 def _fp8_scale_for_leader(is_leader, local_max):
     e8m0 = fx.Int32(0)
@@ -287,7 +311,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     persist: bool = False, cu_num: int = 0, has_pad: bool = False, g2_bhoist=None, g2_ascale_pf=None,
     g2_spart=None, persist_strided: bool = False, g2_bf16_lds: bool = False, p2p_quant_type: str = "none",
     fixed_slot_dispatch: bool = False, skew_cu: int = 0,
-    xcd_schedule: bool = False, band_m: int = 1, schedule_audit: bool = False, queue_grid_mult: int = 1, local_reduce: bool = False, local_reduce_xcd_local: bool = False):
+    xcd_schedule: bool = False, band_m: int = 1, schedule_audit: bool = False, queue_grid_mult: int = 1, local_reduce: bool = False, local_reduce_xcd_local: bool = False, shared_l2: bool = False):
 # fmt: on
     """Compile fused GEMM2 and weighted cross-rank P2P scatter."""
     if local_reduce:
@@ -322,6 +346,10 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     if local_reduce_xcd_local:
         assert local_reduce and persist and band_m > 1 and xcd_schedule, (
             "XCD-local staging requires local reduction and physical-XCD queues")
+    if shared_l2:
+        assert (model_dim, inter_dim, max_tok, BM, BN, BK, SBM) == (6144, 3072, 8192, 64, 128, 128, 128)
+        assert persist and xcd_schedule and band_m > 1 and max_tok % (BM * band_m) == 0
+        assert p2p_quant_type == "none" and not has_pad
     log2_max_tok = max_tok.bit_length() - 1
     mask_max_tok = max_tok - 1
     N_OUT = model_dim
@@ -361,13 +389,14 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         + ("_xl1" if local_reduce_xcd_local else "")
         + (f"_qm{band_m}_xq{int(xcd_schedule)}_qa{int(schedule_audit)}_qg{queue_grid_mult}" if band_m > 1 else "")
         + ("_wb0" if local_reduce_xcd_local else "")
+        + ("_sharedl2_tail_xcd1" if shared_l2 else "")
     )
 
     # fmt: off
     @flyc.kernel(name=kernel_name, known_block_size=[256, 1, 1])
     def kernel_epilog_v2(arg_aq: fx.Int64, arg_ascale: fx.Int64, arg_bq: fx.Int64, arg_bscale: fx.Int64,
         arg_eids: fx.Int64, arg_cumsum: fx.Int64, arg_max_expert_tiles: fx.Int64, arg_stids: fx.Int64,
-        arg_work_head: fx.Int64, arg_audit: fx.Int64, arg_staging: fx.Int64, arg_counters: fx.Int64, arg_route_masks: fx.Int64,
+        arg_work_head: fx.Int64, arg_audit: fx.Int64, arg_staging: fx.Int64, arg_counters: fx.Int64, arg_route_masks: fx.Int64, arg_shared_l2: fx.Int64,
         arg_sweights: fx.Int64, arg_trb: fx.Int64, arg_p2p_comb_inp: fx.Int64, i32_max_m_blocks: fx.Int32,
         i32_inter: fx.Int32, i32_hidden: fx.Int32, i32_kpad: fx.Int32, i32_npad: fx.Int32):
     # fmt: on
@@ -399,64 +428,107 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
                 ),
             )
 
+        if const_expr(shared_l2):
+            shared_rsrc = buffer_ops.create_buffer_resource_from_addr(arg_shared_l2)
+
+            def shared_ptr(slot):
+                addr = buffer_ops.buffer_load(shared_rsrc, fx.Int32(slot), vec_width=1, dtype=fx.Int64)
+                return fx.Int64(rocdl.readfirstlane(T.i64, fx.Int64(addr).ir_value()))
+
+            shared_a, shared_as = shared_ptr(0), shared_ptr(1)
+            shared_b, shared_bs = shared_ptr(2), shared_ptr(3)
+            shared_e, shared_out, shared_heads = shared_ptr(4), shared_ptr(5), shared_ptr(6)
+
         def issue_all_a_loads(m_row0):
             for slot in range_constexpr(kStages):
                 issue_a_load_lds_dt(arg_aq, lds_base_i32, slot, slot, m_row0, wave, lane,
                     is_f8, KH_TILE_A, k_bytes, BM=BM)
 
-        def run_unit(unit_bx, m_block_idx):
-            # Map each Stage2 BM sub-tile to its Stage1 SBM metadata row.
-            m_row = m_block_idx * fx.Int32(BM)
-            sort_block_idx = m_row // fx.Int32(SBM)
-            row_in_sort_block = m_row - sort_block_idx * fx.Int32(SBM)
-            srcmap_row_base = (
-                buffer_ops.buffer_load(trb_rsrc, sort_block_idx, vec_width=1, dtype=fx.Int32)
-                + row_in_sort_block
-            )
-            if tx_i32 < fx.Int32(BM):
-                sorted_pos = srcmap_row_base + tx_i32
-                packed = buffer_ops.buffer_load(
-                    r_stids, sorted_pos, vec_width=1, dtype=fx.Int32
+        def run_unit(unit_bx, m_block_idx, is_shared=None):
+            selected_a, selected_as = arg_aq, arg_ascale
+            selected_b, selected_bs, selected_e = arg_bq, arg_bscale, arg_eids
+            selected_m_blocks = i32_max_m_blocks
+            if const_expr(shared_l2):
+                def select_addr(a, b):
+                    value = is_shared.select(a, b)
+                    return fx.Int64(rocdl.readfirstlane(T.i64, value.ir_value()))
+                selected_a, selected_as = select_addr(shared_a, arg_aq), select_addr(shared_as, arg_ascale)
+                selected_b, selected_bs = select_addr(shared_b, arg_bq), select_addr(shared_bs, arg_bscale)
+                selected_e = select_addr(shared_e, arg_eids)
+                selected_m_blocks = is_shared.select(fx.Int32(max_tok // BM), i32_max_m_blocks)
+                for slot in range_constexpr(kStages):
+                    issue_a_load_lds_dt(selected_a, lds_base_i32, slot, slot, m_block_idx * BM, wave, lane,
+                        is_f8, KH_TILE_A, k_bytes, BM=BM)
+                rocdl.sched_barrier(0)
+
+            def prepare_routed():
+                # Map each Stage2 BM sub-tile to its Stage1 SBM metadata row.
+                m_row = m_block_idx * fx.Int32(BM)
+                sort_block_idx = m_row // fx.Int32(SBM)
+                row_in_sort_block = m_row - sort_block_idx * fx.Int32(SBM)
+                srcmap_row_base = (
+                    buffer_ops.buffer_load(trb_rsrc, sort_block_idx, vec_width=1, dtype=fx.Int32)
+                    + row_in_sort_block
                 )
-                if const_expr(local_reduce):
-                    packed = pack_local_reduce_metadata(
-                        packed, arg_route_masks, m_row + tx_i32 < cumsum0,
-                        recv_cap=_recv_cap, topk=topk, npes=npes,
-                        log2_max_tok=log2_max_tok)
-                weight = buffer_ops.buffer_load(
-                    r_sweights, sorted_pos, vec_width=1, dtype=fx.Float32
-                )
-                fx.ptr_store(
-                    packed,
-                    lds_typed_ptr(
-                        fx.Int32(lds_packed_off) + tx_i32 * fx.Int32(4),
-                        T.i32,
-                        align=4,
-                    ),
-                )
-                fx.ptr_store(
-                    weight,
-                    lds_typed_ptr(
-                        fx.Int32(lds_weight_off) + tx_i32 * fx.Int32(4),
-                        T.f32,
-                        align=4,
-                    ),
-                )
-            # fmt: off
-            accm_vecs, m_row, n_block_idx, _n_out_rt = gemm2_compute_v2(lds_base_i32, arg_ascale, arg_bq,
-                arg_bscale, arg_eids, arg_aq, i32_max_m_blocks, unit_bx, lane, wave, i32_inter, i32_hidden,
+                if tx_i32 < fx.Int32(BM):
+                    sorted_pos = srcmap_row_base + tx_i32
+                    packed = buffer_ops.buffer_load(
+                        r_stids, sorted_pos, vec_width=1, dtype=fx.Int32
+                    )
+                    if const_expr(local_reduce):
+                        packed = pack_local_reduce_metadata(
+                            packed, arg_route_masks, m_row + tx_i32 < cumsum0,
+                            recv_cap=_recv_cap, topk=topk, npes=npes,
+                            log2_max_tok=log2_max_tok)
+                    weight = buffer_ops.buffer_load(
+                        r_sweights, sorted_pos, vec_width=1, dtype=fx.Float32
+                    )
+                    fx.ptr_store(
+                        packed,
+                        lds_typed_ptr(
+                            fx.Int32(lds_packed_off) + tx_i32 * fx.Int32(4),
+                            T.i32,
+                            align=4,
+                        ),
+                    )
+                    fx.ptr_store(
+                        weight,
+                        lds_typed_ptr(
+                            fx.Int32(lds_weight_off) + tx_i32 * fx.Int32(4),
+                            T.f32,
+                            align=4,
+                        ),
+                    )
+
+            if const_expr(shared_l2):
+                if not is_shared:
+                    prepare_routed()
+            else:
+                prepare_routed()
+            accm_vecs, m_row, n_block_idx, _n_out_rt = gemm2_compute_v2(lds_base_i32, selected_as, selected_b,
+                selected_bs, selected_e, selected_a, selected_m_blocks, unit_bx, lane, wave, i32_inter, i32_hidden,
                 i32_kpad, i32_npad, BM=BM, BN=BN, BK=BK, use_nt=use_nt, INTER_MAX=INTER_MAX, aStages=aStages,
                 has_pad=has_pad, SBM=SBM, g2_bhoist=g2_bhoist, g2_ascale_pf=g2_ascale_pf,
                 expert_offset=_expert_offset)
-            p2p_scatter_epilog(lds_base_i32, accm_vecs, n_block_idx, wave, lane, N_OUT=N_OUT,
-                BM=BM, BN=BN, npes=npes, topk=topk,
-                log2_max_tok=log2_max_tok, mask_max_tok=mask_max_tok, recv_cap=_recv_cap,
-                comb_inp_nbytes=_comb_inp_nbytes, lds_packed_off=lds_packed_off,
-                lds_weight_off=lds_weight_off, lds_peer_off=lds_peer_off, g2_bf16_lds=g2_bf16_lds,
-                p2p_quant_type=p2p_quant_type, local_reduce=local_reduce,
-                staging=arg_staging, counters=arg_counters, rank=rank,
-                local_reduce_xcd_local=local_reduce_xcd_local)
-            # fmt: on
+
+            def routed_epilog():
+                p2p_scatter_epilog(lds_base_i32, accm_vecs, n_block_idx, wave, lane, N_OUT=N_OUT,
+                    BM=BM, BN=BN, npes=npes, topk=topk,
+                    log2_max_tok=log2_max_tok, mask_max_tok=mask_max_tok, recv_cap=_recv_cap,
+                    comb_inp_nbytes=_comb_inp_nbytes, lds_packed_off=lds_packed_off,
+                    lds_weight_off=lds_weight_off, lds_peer_off=lds_peer_off, g2_bf16_lds=g2_bf16_lds,
+                    p2p_quant_type=p2p_quant_type, local_reduce=local_reduce,
+                    staging=arg_staging, counters=arg_counters, rank=rank,
+                    local_reduce_xcd_local=local_reduce_xcd_local)
+
+            if const_expr(shared_l2):
+                if is_shared:
+                    shared_l2_epilog(lds_base_i32, accm_vecs, m_block_idx, n_block_idx, wave, lane, shared_out,
+                        BM=BM, BN=BN, N_OUT=N_OUT, max_tok=max_tok)
+                else:
+                    routed_epilog()
+            else:
+                routed_epilog()
 
         cumsum0 = global_typed_ptr(arg_cumsum, T.i32)[0]
         total_m_blocks = (cumsum0 + fx.Int32(BM - 1)) // fx.Int32(BM)
@@ -473,37 +545,65 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
             queue_size = ((total_m_blocks + fx.Int32(band_m - 1)) // fx.Int32(band_m)
                           * fx.Int32(band_m) * n_local)
             attempt = fx.Int32(0)
+            shared_active = fx.Boolean(False)
+            if const_expr(shared_l2):
+                shared_queue_size = max_tok // BM * (model_dim // BN) // 8
+                shared_period = fx.Int64(shared_queue_size + cu_num * queue_grid_mult)
             # Reuse compute LDS only between tiles, with WG barriers before
             # overwriting previous epilogue data and before reusing claim storage.
             claim_ptr = lds_typed_ptr(fx.Int32(0), T.i32)
-            while attempt < fx.Int32(1 if local_reduce_xcd_local else 8):
+            while attempt < fx.Int32(1 if local_reduce_xcd_local and not shared_l2 else 8):
                 queue = (home + attempt) % fx.Int32(8)
                 fx.barrier()
                 if tx_i32 == fx.Int32(0):
-                    claim = fx.Int32(comm_ops.atomic_add_agent(
-                        arg_work_head + fx.Int64(queue) * fx.Int64(256), fx.Int32(1)))
+                    claim = fx.Int32(0)
+                    if const_expr(shared_l2):
+                        if shared_active:
+                            claim = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
+                                shared_heads + fx.Int64(queue) * fx.Int64(64), fx.Int64(1))) % shared_period)
+                        else:
+                            claim = fx.Int32(comm_ops.atomic_add_agent(
+                                arg_work_head + fx.Int64(queue) * fx.Int64(256), fx.Int32(1)))
+                    else:
+                        claim = fx.Int32(comm_ops.atomic_add_agent(
+                            arg_work_head + fx.Int64(queue) * fx.Int64(256), fx.Int32(1)))
                     fx.ptr_store(claim, claim_ptr)
                 fx.barrier()
                 ticket = fx.ptr_load(claim_ptr)
                 fx.barrier()
-                if ticket < queue_size:
+                current_queue_size = queue_size
+                current_m_blocks = total_m_blocks
+                if const_expr(shared_l2):
+                    ticket = fx.Int32(rocdl.readfirstlane(T.i32, fx.Int32(ticket).ir_value()))
+                    current_queue_size = shared_active.select(fx.Int32(shared_queue_size), queue_size)
+                    current_m_blocks = shared_active.select(fx.Int32(max_tok // BM), total_m_blocks)
+                if ticket < current_queue_size:
                     band = ticket // (fx.Int32(band_m) * n_local)
                     rem = ticket % (fx.Int32(band_m) * n_local)
                     m_block = band * fx.Int32(band_m) + rem % fx.Int32(band_m)
                     n_block = (rem // fx.Int32(band_m)) * fx.Int32(8) + queue
-                    if m_block < total_m_blocks:
+                    if m_block < current_m_blocks:
                         unit_bx = m_block * num_n_blocks + n_block
                         if const_expr(schedule_audit):
-                            if tx_i32 == fx.Int32(0):
+                            if (tx_i32 == fx.Int32(0)) & (not shared_active):
                                 audit_addr = arg_audit + fx.Int64(unit_bx) * fx.Int64(12)
                                 comm_ops.atomic_add_agent(audit_addr, fx.Int32(1))
                                 fx.ptr_store(physical_xcd + fx.Int32(1), global_typed_ptr(audit_addr + fx.Int64(4), T.i32))
                                 fx.ptr_store((home == queue).select(fx.Int32(1), fx.Int32(0)), global_typed_ptr(audit_addr + fx.Int64(8), T.i32))
-                        issue_all_a_loads(m_block * fx.Int32(BM))
-                        rocdl.sched_barrier(0)
-                        run_unit(unit_bx, m_block)
+                        if const_expr(shared_l2):
+                            run_unit(unit_bx, m_block, shared_active)
+                        else:
+                            issue_all_a_loads(m_block * fx.Int32(BM))
+                            rocdl.sched_barrier(0)
+                            run_unit(unit_bx, m_block)
                 else:
-                    attempt = attempt + fx.Int32(1)
+                    next_attempt = attempt + fx.Int32(1)
+                    if const_expr(shared_l2):
+                        switch = (not shared_active) & (next_attempt == fx.Int32(1 if local_reduce_xcd_local else 8))
+                        attempt = switch.select(fx.Int32(0), next_attempt)
+                        shared_active = shared_active | switch
+                    else:
+                        attempt = next_attempt
         elif const_expr(not persist and g2_spart <= 0):
             bound = total_m_blocks * fx.Int32(num_n_blocks)
             if fx.Int32(bx_i32) < bound:
@@ -583,7 +683,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     @flyc.jit
     def launch(arg_aq: fx.Int64, arg_ascale: fx.Int64, arg_bq: fx.Int64, arg_bscale: fx.Int64,
         arg_eids: fx.Int64, arg_cumsum: fx.Int64, arg_max_expert_tiles: fx.Int64, arg_stids: fx.Int64,
-        arg_work_head: fx.Int64, arg_audit: fx.Int64, arg_staging: fx.Int64, arg_counters: fx.Int64, arg_route_masks: fx.Int64,
+        arg_work_head: fx.Int64, arg_audit: fx.Int64, arg_staging: fx.Int64, arg_counters: fx.Int64, arg_route_masks: fx.Int64, arg_shared_l2: fx.Int64,
         arg_sweights: fx.Int64, arg_trb: fx.Int64, arg_p2p_comb_inp: fx.Int64, i32_max_m_blocks: fx.Int32,
         i32_grid_blocks: fx.Int32, i32_inter: fx.Int32, i32_hidden: fx.Int32, i32_kpad: fx.Int32,
         i32_npad: fx.Int32, stream: fx.Stream):
@@ -592,7 +692,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         grid_x = i32_grid_blocks * fx.Int32(queue_grid_mult) if band_m > 1 else i32_grid_blocks * num_n_blocks
         kernel_epilog_v2(
             arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cumsum, arg_max_expert_tiles,
-            arg_stids, arg_work_head, arg_audit, arg_staging, arg_counters, arg_route_masks, arg_sweights, arg_trb, arg_p2p_comb_inp, i32_max_m_blocks, i32_inter,
+            arg_stids, arg_work_head, arg_audit, arg_staging, arg_counters, arg_route_masks, arg_shared_l2, arg_sweights, arg_trb, arg_p2p_comb_inp, i32_max_m_blocks, i32_inter,
             i32_hidden, i32_kpad, i32_npad,
         ).launch(grid=(grid_x, 1, 1), block=(256, 1, 1), stream=stream)
 
@@ -619,7 +719,7 @@ def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cu
     HIDDEN_MAX, INTER_MAX, cu_num, BN=256, BK=256, use_nt=True, g2_bhoist=True,
     g2_ascale_pf=True, g2_spart=402, persist=False, persist_cu=0, persist_strided=False,
     g2_bf16_lds=False, p2p_quant_type="none", fixed_slot_dispatch=False, skew_cu=0,
-    xcd_schedule=False, band_m=1, schedule_audit=False, work_head=0, audit_ptr=0, queue_grid_mult=1, local_reduce=False, staging_ptr=0, counters_ptr=0, route_masks_ptr=0, local_reduce_xcd_local=False):
+    xcd_schedule=False, band_m=1, schedule_audit=False, work_head=0, audit_ptr=0, queue_grid_mult=1, local_reduce=False, staging_ptr=0, counters_ptr=0, route_masks_ptr=0, local_reduce_xcd_local=False, shared_l2=0):
     # fmt: on
     """Compile or reuse one fused Stage2 configuration and launch it."""
     if band_m > 1:
@@ -635,12 +735,12 @@ def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cu
         g2_spart=g2_spart, persist_strided=persist_strided, g2_bf16_lds=g2_bf16_lds,
         p2p_quant_type=p2p_quant_type, fixed_slot_dispatch=fixed_slot_dispatch, skew_cu=skew_cu,
         xcd_schedule=xcd_schedule, band_m=band_m, schedule_audit=schedule_audit, queue_grid_mult=queue_grid_mult, local_reduce=local_reduce,
-        local_reduce_xcd_local=local_reduce_xcd_local,
+        local_reduce_xcd_local=local_reduce_xcd_local, shared_l2=bool(shared_l2),
     )
     max_m_blocks = (row_capacity + BM - 1) // BM
     grid_blocks = launch_cu_num if persist else max_m_blocks
     _run_compiled(
         launch, arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cumsum,
-        arg_max_expert_tiles, arg_stids, fx.Int64(work_head), fx.Int64(audit_ptr), fx.Int64(staging_ptr), fx.Int64(counters_ptr), fx.Int64(route_masks_ptr), arg_sweights, arg_trb, arg_p2p, fx.Int32(max_m_blocks),
+        arg_max_expert_tiles, arg_stids, fx.Int64(work_head), fx.Int64(audit_ptr), fx.Int64(staging_ptr), fx.Int64(counters_ptr), fx.Int64(route_masks_ptr), fx.Int64(shared_l2), arg_sweights, arg_trb, arg_p2p, fx.Int32(max_m_blocks),
         fx.Int32(grid_blocks), fx.Int32(i32_inter), fx.Int32(i32_hidden), fx.Int32(0), fx.Int32(0), stream,
     )

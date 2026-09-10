@@ -435,6 +435,7 @@ def make_combine_kernel(
     fp8_direct_cast: bool = False,
     blockwise_fp8_transport: bool = False,
     local_reduce_epr: int = 0,
+    shared_input: bool = False,
     max_recv: int | None = None,
 ):
     """Build the intranode combine ``@flyc.kernel``.
@@ -466,6 +467,10 @@ def make_combine_kernel(
                 and data_type == torch.bfloat16 and not enable_weights
                 and not zero_copy and not fp8_direct_cast and not blockwise_fp8_transport):
             raise ValueError("rank-local combine requires fused EP4 or EP8/topk4 BF16 input")
+    if shared_input and not (skip_stage1 and data_type == torch.bfloat16
+            and not enable_weights and not enable_std_moe and not zero_copy
+            and not fp8_direct_cast and not blockwise_fp8_transport):
+        raise ValueError("shared input requires fused BF16 combine")
     _xfer_bf16_to_fp8 = fp8_direct_cast
     _transport_dtype = torch.float8_e4m3fn if _xfer_bf16_to_fp8 else data_type
 
@@ -936,6 +941,9 @@ def make_combine_kernel(
         # partitions; each warp reduces k partials in f32 -> shmem_comb_out.
         SLC_CACHE = _SLC_CACHE
         rsrc_out = create_buffer_resource_from_addr(addr_out_shmem_tok)
+        if const_expr(shared_input):
+            rsrc_shared = create_buffer_resource_from_addr(addr_inp_tok,
+                num_records_bytes=max_tok_per_rank * hidden_dim * 2)
 
         n_elems = n_i32
         # Clamp denom to 1 when cur_rank_num_token == 0 (loop won't execute anyway).
@@ -1124,6 +1132,10 @@ def make_combine_kernel(
                     kw = {"cache_modifier": SLC_CACHE}
                     if u > 0:
                         kw["soffset_bytes"] = u * out_step
+                    if const_expr(shared_input):
+                        shared = buffer_load(rsrc_shared, out_off, vec_width=1, dtype=T.i32, **kw)
+                        # Preserve routed BF16 rounding before the final BF16 add.
+                        acc = _from_accum(_to_accum(acc) + _to_accum(shared))
                     buffer_store(acc, rsrc_out, out_off, **kw)
 
             def _accum_loop(end, U, hdim_off=hdim_off):
@@ -1356,6 +1368,7 @@ def make_combine_jit(
     fp8_direct_cast: bool = False,
     blockwise_fp8_transport: bool = False,
     local_reduce_epr: int = 0,
+    shared_input: bool = False,
     max_recv=None,
 ):
     """Build the JIT launcher for ``make_combine_kernel``. ``data_type`` is the
@@ -1381,6 +1394,7 @@ def make_combine_jit(
         fp8_direct_cast=fp8_direct_cast,
         blockwise_fp8_transport=blockwise_fp8_transport,
         local_reduce_epr=local_reduce_epr,
+        shared_input=shared_input,
         max_recv=max_recv,
     )
 
@@ -1394,6 +1408,7 @@ def make_combine_jit(
     _key_skip_s1 = skip_stage1
     _key_fp8_direct_cast = bool(fp8_direct_cast)
     _key_blockwise_fp8_transport = bool(blockwise_fp8_transport)
+    _key_shared_input = bool(shared_input)
     _key_local_reduce_epr = local_reduce_epr
     _key_max_recv = max_recv if max_recv is not None else npes * max_tok_per_rank
     # See dispatch launcher for the ``str(torch.dtype)`` rationale.
@@ -1437,6 +1452,7 @@ def make_combine_jit(
             _key_fp8_direct_cast,
             _key_blockwise_fp8_transport,
             _key_local_reduce_epr,
+            _key_shared_input,
             _key_max_recv,
             _key_data_type,
             _key_schema_version,

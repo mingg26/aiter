@@ -35,7 +35,7 @@ class MegaMoEM3:
         w1: torch.Tensor, w1_scale: torch.Tensor, w2: torch.Tensor, w2_scale: torch.Tensor,
         max_tok_per_rank: int, mega_scheme: str = "fixedslot", swiglu_limit: float = 7.0,
         swiglu_alpha: float = 1.702, swiglu_beta: float = 1.0, local_reduce: bool = False,
-        local_reduce_xcd_local: bool = False, shared_w13=None, shared_w13_scale=None, shared_xcd_schedule=True):
+        local_reduce_xcd_local: bool = False, shared_w13=None, shared_w13_scale=None, shared_xcd_schedule=True, shared_w2=None, shared_w2_scale=None):
     # fmt: on
         if experts % world_size != 0:
             raise ValueError(f"experts={experts} must be divisible by world_size={world_size}")
@@ -105,6 +105,26 @@ class MegaMoEM3:
             self._shared_l13 = torch.tensor([t.data_ptr() for t in (
                 self._shared_w13, self._shared_w13_scale, self._shared_a2,
                 self._shared_a2_scale, self._shared_rows, self._shared_experts, self._shared_task_count)], device=self.dev, dtype=torch.int64)
+
+        self._shared_l2 = None
+        if (shared_w2 is None) != (shared_w2_scale is None):
+            raise ValueError("shared_w2 and shared_w2_scale must be provided together")
+        if shared_w2 is not None:
+            if self._shared_l13 is None or not self._shared_xcd_schedule:
+                raise ValueError("shared L2 requires shared L13 and XCD scheduling")
+            if (self.model_dim, self.inter_dim, self.mtpr) != (6144, 3072, 8192):
+                raise ValueError("shared L2 currently supports H6144/I3072/T8192")
+            self._shared_w2 = shared_w2.contiguous().view(torch.uint8)
+            self._shared_w2_scale = shared_w2_scale.contiguous().view(torch.uint8)
+            if self._shared_w2.numel() != self.model_dim * self.inter_dim:
+                raise ValueError("shared W2 must contain one full MXFP8 expert")
+            if self._shared_w2_scale.numel() != self.model_dim * (self.inter_dim // 32):
+                raise ValueError("shared W2 scale size does not match one full expert")
+            self._shared_out = torch.empty((self.mtpr, self.model_dim), dtype=torch.bfloat16, device=self.dev)
+            self._shared_l2_heads = torch.zeros(8 * 8, dtype=torch.int64, device=self.dev)
+            self._shared_l2 = torch.tensor([t.data_ptr() for t in (
+                self._shared_a2, self._shared_a2_scale, self._shared_w2, self._shared_w2_scale,
+                self._shared_experts, self._shared_out, self._shared_l2_heads)], dtype=torch.int64, device=self.dev)
 
 
     def _build_fused_stage1(self, w1, w1_scale):
@@ -612,11 +632,14 @@ class MegaMoEM3:
             staging_ptr=self._g2_staging.data_ptr() if self.local_reduce else 0,
             counters_ptr=self._g2_reduce_counters.data_ptr() if self.local_reduce else 0,
             route_masks_ptr=self._route_masks.data_ptr() if self.local_reduce else 0,
-            audit_ptr=self._g2_schedule_audit.data_ptr() if stage2.schedule_audit else 0, **invariants)
+            audit_ptr=self._g2_schedule_audit.data_ptr() if stage2.schedule_audit else 0,
+            shared_l2=self._shared_l2.data_ptr() if self._shared_l2 is not None else 0, **invariants)
         # fmt: on
         self._g2_active_block_m = stage2.block_m
         return comb_op.combine_no_stage1(
-            self._g2_combine_placeholder, None, None, cur_tok=run_tokens, enable_weights=False,
+            self._shared_out if self._shared_l2 is not None else self._g2_combine_placeholder,
+            None, None, cur_tok=run_tokens, enable_weights=False,
+            shared_input=self._shared_l2 is not None,
             stage2_p2p_quant=p2p_quant,
             stage2_topk_ids=self._s2_topk_ids if self.local_reduce else None,
         )
