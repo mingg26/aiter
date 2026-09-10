@@ -351,6 +351,12 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         assert (max_tok, BM, BN, BK, SBM) in ((256, 32, 128, 256, 64), (8192, 64, 128, 128, 128))
         assert persist and xcd_schedule and band_m > 1 and max_tok % (BM * band_m) == 0
         assert p2p_quant_type == "none" and not has_pad
+    # Use the validated early2 order only for the EP8 b256 shared geometry.
+    shared_early2 = (
+        shared_l2 and not local_reduce
+        and (npes, max_tok, BM, BN, BK, SBM, band_m, cu_num, queue_grid_mult)
+        == (8, 256, 32, 128, 256, 64, 8, 128, 5)
+    )
     log2_max_tok = max_tok.bit_length() - 1
     mask_max_tok = max_tok - 1
     N_OUT = model_dim
@@ -390,7 +396,8 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         + ("_xl1" if local_reduce_xcd_local else "")
         + (f"_qm{band_m}_xq{int(xcd_schedule)}_qa{int(schedule_audit)}_qg{queue_grid_mult}" if band_m > 1 else "")
         + ("_wb0" if local_reduce_xcd_local else "")
-        + ("_sharedl2_tail_xcd1" if shared_l2 else "")
+        + ("_sharedl2_early2of8_xcd1" if shared_early2 else
+           "_sharedl2_tail_xcd1" if shared_l2 else "")
     )
 
     # fmt: off
@@ -547,13 +554,20 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
                           * fx.Int32(band_m) * n_local)
             attempt = fx.Int32(0)
             shared_active = fx.Boolean(False)
+            if const_expr(shared_early2):
+                shared_first = ((bx_i32 // fx.Int32(8)) % fx.Int32(8)) < fx.Int32(2)
             if const_expr(shared_l2):
                 shared_queue_size = max_tok // BM * (model_dim // BN) // 8
                 shared_period = fx.Int64(shared_queue_size + cu_num * queue_grid_mult)
             # Reuse compute LDS only between tiles, with WG barriers before
             # overwriting previous epilogue data and before reusing claim storage.
             claim_ptr = lds_typed_ptr(fx.Int32(0), T.i32)
-            while attempt < fx.Int32(1 if local_reduce_xcd_local and not shared_l2 else 8):
+            # Each CTA visits both sets of eight queues. A quarter visit shared
+            # first; all retain one exhausted claim per shared queue, preserving
+            # the 48 valid + 640 exhausted claims per graph replay epoch.
+            while attempt < fx.Int32(16 if shared_early2 else (1 if local_reduce_xcd_local and not shared_l2 else 8)):
+                if const_expr(shared_early2):
+                    shared_active = (attempt < fx.Int32(8)) == shared_first
                 queue = (home + attempt) % fx.Int32(8)
                 fx.barrier()
                 if tx_i32 == fx.Int32(0):
@@ -599,7 +613,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
                             run_unit(unit_bx, m_block)
                 else:
                     next_attempt = attempt + fx.Int32(1)
-                    if const_expr(shared_l2):
+                    if const_expr(shared_l2 and not shared_early2):
                         switch = (not shared_active) & (next_attempt == fx.Int32(1 if local_reduce_xcd_local else 8))
                         attempt = switch.select(fx.Int32(0), next_attempt)
                         shared_active = shared_active | switch
