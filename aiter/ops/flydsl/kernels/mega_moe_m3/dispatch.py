@@ -162,10 +162,15 @@ def _store_expert_metadata(
     *,
     fz_tile_m,
     invalid_source,
+    padding_uniform_srcmap=False,
 ):
     crfa = buffer_ops.create_buffer_resource_from_addr
     sorted_expert = crfa(addr_sorted_expert)
     tile_row_base = crfa(addr_tile_row_base)
+    if const_expr(padding_uniform_srcmap):
+        # All active expert lanes use the same local SRCMAP table entry.
+        # Make this invariant explicit once, outside the divergent row loop.
+        addr_srcmap = fx.Int64(fx.rocdl.readfirstlane(T.i64, fx.Int64(addr_srcmap).ir_value()))
     srcmap = crfa(addr_srcmap)
     base_tile = local_row_base // fx.Int32(fz_tile_m)
     for tile in range(fx.Int32(0), num_tiles, 1):
@@ -418,6 +423,9 @@ def emit_dispatch_plan(
     *, num_waves, fz_npes, fz_epr, fz_k, fz_mtpr, fz_rank, fz_tile_m, fz_total_experts, addr_disp,
     i32_cur_tok, addr_in_idx, parity, expected, external_grouping, external_counting,
     dispatch_blocks, payload_chunk_rows=0, payload_tile_ready=False,
+    padding_uniform_srcmap=False,
+    count_uniform_matrix=False,
+    row_base_prefetch=False,
 ):
 # fmt: on
     """Build a destination-owned compact plan in one producer-only CTA."""
@@ -462,7 +470,6 @@ def emit_dispatch_plan(
     wl = i32_cur_tok * fx.Int32(fz_k)
     r_idx = crfa(addr_in_idx)
     r_lh = crfa(a_lh)
-    r_bc = crfa(a_bc)
     r_pair_base = crfa(a_pair_base)
     r_pair = crfa(a_pair_order)
     r_lc = crfa(a_lc)
@@ -536,7 +543,24 @@ def emit_dispatch_plan(
             mori_shmem.int32_wait_until_equals(a_cd + fx.Int64(done_index) * fx.Int64(4), expected)
         comm_ops.fence_system_acquire()
 
+        count_matrix_addr = a_bc
+        if const_expr(count_uniform_matrix):
+            # COUNT_MATRIX is one local table shared by every planner lane.
+            # Uniformize its descriptor once so independent source loads
+            # do not each require a descriptor waterfall and drain.
+            count_matrix_addr = fx.Int64(fx.rocdl.readfirstlane(T.i64, fx.Int64(a_bc).ir_value()))
+        r_bc = crfa(count_matrix_addr)
         r_nv = crfa(a_nv)
+        remote_row_bases = []
+        if const_expr(row_base_prefetch):
+            # Every planner lane reads the same immutable peer-pointer table.
+            # Batch pointer reads ahead of the dependent row-base stores.
+            row_base_table_addr = fx.Int64(fx.rocdl.readfirstlane(T.i64, fx.Int64(p_mb).ir_value()))
+            row_base_table = crfa(row_base_table_addr)
+            for source in range_constexpr(fz_npes):
+                remote_row_bases.append(buffer_ops.buffer_load(
+                    row_base_table, fx.Int32(source), vec_width=1, dtype=fx.Int64
+                ))
         row_carry = fx.Int32(0)
         max_expert_tiles = fx.Int32(0)
         for expert_chunk in range_constexpr((fz_epr + 63) // 64):
@@ -565,7 +589,12 @@ def emit_dispatch_plan(
             sender_prefix = fx.Int32(0)
             for source in range_constexpr(fz_npes):
                 if valid_expert:
-                    remote_my_base = buffer_ops.buffer_load(crfa(p_mb), fx.Int32(source), vec_width=1, dtype=fx.Int64)
+                    if const_expr(row_base_prefetch):
+                        remote_my_base = fx.Int64(fx.rocdl.readfirstlane(
+                            T.i64, fx.Int64(remote_row_bases[source]).ir_value()
+                        ))
+                    else:
+                        remote_my_base = buffer_ops.buffer_load(crfa(p_mb), fx.Int32(source), vec_width=1, dtype=fx.Int64)
                     buffer_ops.buffer_store(local_row_base + sender_prefix, crfa(remote_my_base), ge)
                 sender_prefix = sender_prefix + source_counts[source]
 
@@ -610,6 +639,7 @@ def emit_dispatch_plan(
                     padded_rows,
                     fz_tile_m=fz_tile_m,
                     invalid_source=fz_npes * fz_mtpr,
+                    padding_uniform_srcmap=padding_uniform_srcmap,
                 )
 
             last_lane = min(63, fz_epr - expert_chunk * 64 - 1)

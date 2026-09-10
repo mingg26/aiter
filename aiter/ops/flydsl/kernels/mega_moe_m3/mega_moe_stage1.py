@@ -78,6 +78,11 @@ def compile_mega_moe_stage1(
     waves_per_eu_hint: int = 2, num_cu: int = 256, num_dispatch_cu: int = 32, b_nt: int = -1,
     work_shards: int | None = None, external_grouping: bool | None = None,
     external_counting: bool | None = None, payload_chunk_rows: int = 0, payload_tile_ready: bool = False,
+    skip_launch_barrier: bool = False,
+    padding_uniform_srcmap: bool = False,
+    count_uniform_matrix: bool = False,
+    row_base_prefetch: bool = False,
+    prefetch_b_before_a: bool = False,
     band_m: int = 1, swiglu_limit: float = 7.0, swiglu_alpha: float = 1.702, swiglu_beta: float = 1.0,
     packed_a_scale: bool = False,
     unroll_a_pingpong: bool = False,
@@ -107,6 +112,12 @@ def compile_mega_moe_stage1(
     if payload_chunk_rows:
         assert not fixed_slot_dispatch and payload_chunk_rows % sort_block_m == 0
     assert not payload_tile_ready or payload_chunk_rows > 0
+    assert not skip_launch_barrier or (not fixed_slot_dispatch and payload_chunk_rows == 0), (
+        "Skipping launch arrival requires compact COUNT_DONE and all-destination producers"
+    )
+    assert not prefetch_b_before_a or (pipe_weights and async_a_copy and not fixed_slot_dispatch), (
+        "B prefetch before payload readiness requires compact dispatch and the asynchronous weight pipeline"
+    )
     BAND_M = int(band_m)
     assert BAND_M >= 1, "band_m is a count of m_tiles per reuse band"
     # The tile-ready schedule uses GEMM's band decoder. Small XCD bands
@@ -228,6 +239,11 @@ def compile_mega_moe_stage1(
         + ("_xq1" if xcd_schedule else "")
         + ("_qa1" if schedule_audit else "")
         + ("_sxcd1" if small_xcd else "")
+        + ("_slb1" if skip_launch_barrier else "")
+        + ("_pus1" if padding_uniform_srcmap else "")
+        + ("_cum1" if count_uniform_matrix else "")
+        + ("_rbp1" if row_base_prefetch else "")
+        + ("_bpa1" if prefetch_b_before_a else "")
         + "_scratchfix1"
         + ("_s2qr1" if reset_stage2_queue else "")
     )
@@ -305,16 +321,22 @@ def compile_mega_moe_stage1(
                     comm_ops.store_i32_system(a_payload_ready_rows, fx.Int32(0), fx.Int32(fz_tile_m))
                     comm_ops.fence_system_release()
                 fx.barrier()
-            if tid < fx.Int32(fz_npes):
-                peer = (tid + fx.Int32(fz_rank)) % fx.Int32(fz_npes)
-                comm_ops.fence_system_release()
-                launch_ready_table = _make_buffer_from_addr(p_launch_ready, fx.Int64)
-                remote_launch_ready = _buffer_load(launch_ready_table, peer, fx.Int64)
-                comm_ops.store_i32_system(remote_launch_ready, fx.Int32(fz_rank), launch_epoch)
-                mori_shmem.int32_wait_until_greater_than(
-                    a_launch_ready + fx.Int64(peer) * fx.Int64(4), launch_epoch - fx.Int32(1)
-                )
-                comm_ops.fence_system_acquire()
+            # Compact COUNT_DONE already waits for every rank this generation.
+            # Before a previous S1 can finish, its all-destination producers
+            # have seen every peer's PLAN_READY: all old count reads are done.
+            # Thus next-generation count writes may precede peer S1 arrival.
+            # Keep the local reset/gate below; it protects local queue state.
+            if const_expr(not skip_launch_barrier):
+                if tid < fx.Int32(fz_npes):
+                    peer = (tid + fx.Int32(fz_rank)) % fx.Int32(fz_npes)
+                    comm_ops.fence_system_release()
+                    launch_ready_table = _make_buffer_from_addr(p_launch_ready, fx.Int64)
+                    remote_launch_ready = _buffer_load(launch_ready_table, peer, fx.Int64)
+                    comm_ops.store_i32_system(remote_launch_ready, fx.Int32(fz_rank), launch_epoch)
+                    mori_shmem.int32_wait_until_greater_than(
+                        a_launch_ready + fx.Int64(peer) * fx.Int64(4), launch_epoch - fx.Int32(1)
+                    )
+                    comm_ops.fence_system_acquire()
             if tid == fx.Int32(0):
                 if const_expr(reset_stage2_queue):
                     # Only the eight queue heads are live; each is 256 B apart.
@@ -358,6 +380,9 @@ def compile_mega_moe_stage1(
                     i32_cur_tok=i32_cur_tok, addr_in_idx=addr_in_idx, parity=payload_parity,
                     expected=payload_expected, external_grouping=external_grouping,
                     external_counting=external_counting,
+                    padding_uniform_srcmap=padding_uniform_srcmap,
+                    count_uniform_matrix=count_uniform_matrix,
+                    row_base_prefetch=row_base_prefetch,
                     dispatch_blocks=dispatch_blocks, payload_chunk_rows=payload_chunk_rows,
                     payload_tile_ready=payload_tile_ready,
                 )
@@ -507,6 +532,12 @@ def compile_mega_moe_stage1(
                 )
 
         # Control CTAs join the work pool after dispatch.
+        def _wait_payload_after_b(work):
+            if tid == fx.Int32(0):
+                _wait_tile_payload(work)
+            fx.barrier()
+            comm_ops.fence_system_acquire()
+
         consumer_active = fx.Int32(1) == fx.Int32(1)
         work_scratch = fx.recast_iter(fx.Int32, a_buf.ptr)
         work_scratch_view = fx.make_view(work_scratch, fx.make_layout(1, 1))
@@ -575,7 +606,7 @@ def compile_mega_moe_stage1(
                     )
                     flags = in_range | ((in_range * valid) << fx.Int32(1))
                 if (flags & fx.Int32(2)) != fx.Int32(0):  # noqa: SIM102 - keep the device and compile-time branches separate.
-                    if const_expr(not direct_fixed_slot):
+                    if const_expr(not direct_fixed_slot and not prefetch_b_before_a):
                         _wait_tile_payload(work)
                 fx.ptr_store(Vec.from_elements([flags], fx.Int32), work_scratch)
             fx.barrier()
@@ -584,7 +615,7 @@ def compile_mega_moe_stage1(
             # Finish every wave's flags load before either reuses that storage.
             fx.barrier()
             if (flags & fx.Int32(2)) != fx.Int32(0):
-                if const_expr(not direct_fixed_slot):
+                if const_expr(not direct_fixed_slot and not prefetch_b_before_a):
                     comm_ops.fence_system_acquire()
                 if const_expr(schedule_audit):
                     if tid == fx.Int32(0):
@@ -596,7 +627,10 @@ def compile_mega_moe_stage1(
                         audit_rsrc = _make_buffer_from_addr(audit_addr, fx.Int32)
                         _buffer_store(audit_rsrc, audit_index + fx.Int32(1), physical_xcd + fx.Int32(1), fx.Int32)
                         _buffer_store(audit_rsrc, audit_index + fx.Int32(2), work_shard + fx.Int32(1), fx.Int32)
-                _do_scheduled_tile(work)
+                if const_expr(prefetch_b_before_a):
+                    _do_scheduled_tile(work, wait_payload=_wait_payload_after_b)
+                else:
+                    _do_scheduled_tile(work)
             if const_expr(xcd_schedule):
                 queue_attempt = queue_attempt + ((flags & fx.Int32(1)) == fx.Int32(0)).select(fx.Int32(1), fx.Int32(0))
                 consumer_active = queue_attempt < fx.Int32(8)
@@ -632,6 +666,11 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
     mfma_amajor=False, swizzle_a=True, async_a_copy=False, num_dispatch_cu=32,
     use_tile_resource=True, waves_per_eu_hint=2,
     b_nt=-1, work_shards=None, external_grouping=None, external_counting=None,
+    skip_launch_barrier=False,
+    padding_uniform_srcmap=False,
+    count_uniform_matrix=False,
+    row_base_prefetch=False,
+    prefetch_b_before_a=False,
     payload_chunk_rows=0, payload_tile_ready=False, band_m=1, swiglu_limit=0.0,
     swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, xcd_schedule=False, schedule_audit=False, stage2_work_head=0):
     launch = compile_mega_moe_stage1(
@@ -644,6 +683,11 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
         waves_per_eu_hint=waves_per_eu_hint, num_cu=num_cu, num_dispatch_cu=num_dispatch_cu,
         b_nt=b_nt, work_shards=work_shards, external_grouping=external_grouping,
         external_counting=external_counting, payload_chunk_rows=payload_chunk_rows,
+        skip_launch_barrier=skip_launch_barrier,
+        padding_uniform_srcmap=padding_uniform_srcmap,
+        count_uniform_matrix=count_uniform_matrix,
+        row_base_prefetch=row_base_prefetch,
+        prefetch_b_before_a=prefetch_b_before_a,
         payload_tile_ready=payload_tile_ready, band_m=band_m,
         packed_a_scale=packed_a_scale,
         unroll_a_pingpong=unroll_a_pingpong,

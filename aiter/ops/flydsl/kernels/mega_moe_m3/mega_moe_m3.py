@@ -19,6 +19,7 @@ from .mega_moe_config import (
     _STAGE1_OVERRIDE_ENV,
     MegaMoEConfig,
     Stage1Config,
+    Stage2Config,
     select_mega_moe_config,
 )
 from .quant import per_1x32_mx_quant
@@ -226,6 +227,27 @@ class MegaMoEM3:
             model_dim=self.model_dim,
             inter_dim=self.inter_dim,
         )
+        # Measured EP8 M3 T256 configuration: P1, P2a, P2b and early B prefetch.
+        # Retain the launch barrier; removing it with P1 showed no extra gain.
+        if ((self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk,
+             tokens, self.mtpr) == (8, 16, 6144, 3072, 4, 256, 256)
+                and not self.local_reduce and not self.local_reduce_xcd_local
+                and config.p2p_quant == "none"
+                and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())):
+            config = MegaMoEConfig(
+                stage1=Stage1Config(
+                    sort_block_m=64, tile_n=512, tile_k=256, num_waves=8,
+                    grid_mult=1, num_dispatch_cu=32, mfma_amajor=True,
+                    async_a_copy=True, use_tile_resource=False, b_nt=0,
+                    xcd_schedule=True, band_m=4, padding_uniform_srcmap=True,
+                    count_uniform_matrix=True, row_base_prefetch=True,
+                    prefetch_b_before_a=True,
+                    skip_launch_barrier=False),
+                stage2=Stage2Config(
+                    block_m=32, block_n=128, block_k=256, persist=True,
+                    persist_cu=128, use_nt=False, queue_grid_mult=5,
+                    xcd_schedule=True, band_m=8),
+                p2p_quant="none")
         # Best measured EP4 M3 8192-token stage configurations. S1 retains
         # M128 and double-stage B; its two-CTA alternatives regress. S2 uses
         # M64/N128/K128 with 1200 queued CTAs to feed its four-CTA capacity.
@@ -343,6 +365,11 @@ class MegaMoEM3:
             use_tile_resource=config.use_tile_resource,
             waves_per_eu_hint=config.waves_per_eu_hint, b_nt=config.b_nt,
             work_shards=config.work_shards, external_grouping=config.external_grouping,
+            skip_launch_barrier=config.skip_launch_barrier,
+            padding_uniform_srcmap=config.padding_uniform_srcmap,
+            count_uniform_matrix=config.count_uniform_matrix,
+            row_base_prefetch=config.row_base_prefetch,
+            prefetch_b_before_a=config.prefetch_b_before_a,
             external_counting=config.external_counting, payload_chunk_rows=config.payload_chunk_rows,
             payload_tile_ready=config.payload_tile_ready, band_m=config.band_m,
             packed_a_scale=config.packed_a_scale,

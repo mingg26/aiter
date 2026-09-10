@@ -51,7 +51,8 @@ class _SplitABuffer:
 @flyc.jit
 def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_scale, a_scale, mfma, epi, a_buf,
     a_scale_lds, a_lds_i32, K_ITERS, M_REPEAT, NUM_ACC_N, A_K_STEP_BYTES, pipe_weights,
-    mfma_amajor, async_a_copy, trb_rsrc, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, scalar_tile_row_base=False):
+    mfma_amajor, async_a_copy, trb_rsrc, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, scalar_tile_row_base=False,
+    wait_payload=None, work=None):
 # fmt: on
     N_ACC = M_REPEAT * NUM_ACC_N
     NUM_B_SCALE = NUM_ACC_N // _PACK
@@ -67,6 +68,12 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
         # base scalar so direct-to-LDS loads need no descriptor waterfall.
         tile_row_base = fx.Int32(rocdl.readfirstlane(T.i32, tile_row_base.ir_value()))
     b_row = sched.gate_base_row(expert) + n_tile_base
+    if const_expr(wait_payload is not None):
+        # Local weights and their scales do not depend on remote A readiness.
+        # Reuse the first pipeline stage across the payload wait.
+        b0 = b_loader.load_step(b_row, fx.Int32(0))
+        sb0 = b_scale.load_step(b_row, fx.Int32(0))
+        wait_payload(work)
     a_gather.for_tile(tile_row_base)
     if const_expr(pipe_weights):
         if const_expr(async_a_copy):
@@ -83,14 +90,18 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
             )
         a_scale.stage(a_scale_lds, tile_row_base)
         wait_lds_barrier(0 if async_a_copy else 63)
-        b0 = b_loader.load_step(b_row, fx.Int32(0))
+        if const_expr(wait_payload is None):
+            b0 = b_loader.load_step(b_row, fx.Int32(0))
         init = [mfma.zero_value for _ in range(N_ACC)]
         init += [h for ni_list in b0 for h in ni_list]
         if const_expr(async_a_copy):
-            init += b_scale.load_step(
-                b_row,
-                fx.Int32(0),
-            )
+            if const_expr(wait_payload is not None):
+                init += sb0
+            else:
+                init += b_scale.load_step(
+                    b_row,
+                    fx.Int32(0),
+                )
             init += a_scale.load_step(
                 a_scale_lds,
                 fx.Int32(0),
@@ -453,7 +464,7 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
         m_tile, _n = _decode(flat)
         return sched.expert_of(m_tile)
 
-    def do_scheduled_tile(flat):
+    def do_scheduled_tile(flat, wait_payload=None):
         m_tile, n_tile = _decode(flat)
         n_tile_base = n_wave_base + n_tile * fx.Int32(tile_n)
         expert = sched.expert_of(m_tile)
@@ -462,7 +473,8 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
             a_s2r, b_loader, b_scale, a_scale, mfma, epi, a_buf,
             a_scale_lds, a_lds_i32, k_iters, m_repeat, num_acc_n,
             a_k_step_bytes, pipe_weights, mfma_amajor, async_a_copy,
-            trb_rsrc, unroll_a_pingpong, split_a_lds, fp8_b_waitcnt, scalar_tile_row_base)
+            trb_rsrc, unroll_a_pingpong, split_a_lds, fp8_b_waitcnt, scalar_tile_row_base,
+            wait_payload=wait_payload, work=flat)
         # fmt: on
 
     return expert_of_flat, m_tile_of_flat, do_scheduled_tile

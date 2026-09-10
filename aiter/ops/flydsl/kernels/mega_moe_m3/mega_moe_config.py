@@ -49,6 +49,11 @@ class Stage1Config:
     work_shards: int = 8
     external_grouping: bool = False
     external_counting: bool = False
+    skip_launch_barrier: bool = False
+    padding_uniform_srcmap: bool = False
+    count_uniform_matrix: bool = False
+    row_base_prefetch: bool = False
+    prefetch_b_before_a: bool = False
     payload_chunk_rows: int = 0
     payload_tile_ready: bool = False
     packed_a_scale: bool = False
