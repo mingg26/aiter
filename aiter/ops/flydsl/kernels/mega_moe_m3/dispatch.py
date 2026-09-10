@@ -426,6 +426,7 @@ def emit_dispatch_plan(
     padding_uniform_srcmap=False,
     count_uniform_matrix=False,
     row_base_prefetch=False,
+    histogram_precomputed=False,
 ):
 # fmt: on
     """Build a destination-owned compact plan in one producer-only CTA."""
@@ -473,7 +474,10 @@ def emit_dispatch_plan(
     r_pair_base = crfa(a_pair_base)
     r_pair = crfa(a_pair_order)
     r_lc = crfa(a_lc)
-    if const_expr(external_counting):
+    if const_expr(histogram_precomputed):
+        # The preceding topk kernel completed all local histogram atomics.
+        pass
+    elif const_expr(external_counting):
         if tid == fx.Int32(0):
             mori_shmem.int32_wait_until_equals(a_group_done, fx.Int32(dispatch_blocks))
             comm_ops.fence_agent_acquire()
@@ -801,6 +805,7 @@ def emit_dispatch_payload(
     producer_slot, parity, expected, producers_per_destination, chunks_per_destination,
     payload_chunk_rows=0,
     payload_tile_ready=False,
+    payload_tile_publish_early=False,
 ):
 # fmt: on
     """Produce independently publishable expert payloads from a compact plan."""
@@ -872,15 +877,26 @@ def emit_dispatch_payload(
     if tid == fx.Int32(0):
         mori_shmem.int32_wait_until_equals(a_plan_ready + fx.Int64(ready_index) * fx.Int64(4), expected)
         comm_ops.fence_system_acquire()
+    if const_expr(payload_tile_publish_early):
+        fx.barrier()
     destination_ready_rows = fx.Int32(0)
     if const_expr(payload_tile_ready):
-        if tid == fx.Int32(0):
-            remote_ready_rows = buffer_ops.buffer_load(
+        if const_expr(payload_tile_publish_early):
+            # Every wave needs the same tile size for the CTA-uniform loop.
+            early_remote_ready_rows = buffer_ops.buffer_load(
                 crfa(p_payload_ready_rows), producer_destination, vec_width=1, dtype=fx.Int64
             )
             destination_ready_rows = buffer_ops.buffer_load(
-                crfa(remote_ready_rows), fx.Int32(0), vec_width=1, dtype=fx.Int32
+                crfa(early_remote_ready_rows), fx.Int32(0), vec_width=1, dtype=fx.Int32
             )
+        else:
+            if tid == fx.Int32(0):
+                remote_ready_rows = buffer_ops.buffer_load(
+                    crfa(p_payload_ready_rows), producer_destination, vec_width=1, dtype=fx.Int64
+                )
+                destination_ready_rows = buffer_ops.buffer_load(
+                    crfa(remote_ready_rows), fx.Int32(0), vec_width=1, dtype=fx.Int32
+                )
     fx.barrier()
     for task_index in range(task0, task_limit, task_stride):
         if const_expr(payload_chunk_rows > 0):
@@ -925,7 +941,7 @@ def emit_dispatch_payload(
             token_remote = buffer_ops.buffer_load(crfa(p_rx), destination, vec_width=1, dtype=fx.Int64)
             if const_expr(fz_enable_scales):
                 scale_remote_rsrc = crfa(buffer_ops.buffer_load(crfa(p_sc), destination, vec_width=1, dtype=fx.Int64))
-        for row in range(row_begin + row0, row_end, row_stride):
+        def _copy_payload_row(row):
             wk_lane = fx.Int32(0)
             if lane == fx.Int32(0):
                 wk_lane = buffer_ops.buffer_load(r_pair, source_base + row, vec_width=1, dtype=fx.Int32)
@@ -1000,11 +1016,37 @@ def emit_dispatch_payload(
                 fz_n_i32=fz_n_i32,
             )
 
+        if const_expr(payload_tile_publish_early):
+            # Keep the source-chunk task assignment, but publish each destination
+            # M-tile intersection immediately after all waves finish its stores.
+            # A tile spanning two chunks still expects two contributions.
+            first_tile = (destination_base + row_begin) // destination_ready_rows
+            end_tile = (destination_base + row_end + destination_ready_rows - fx.Int32(1)) // destination_ready_rows
+            if chunk_active & (row_end > row_begin):
+                for tile in range(first_tile, end_tile, 1):
+                    tile_begin = tile * destination_ready_rows - destination_base
+                    tile_end = tile_begin + destination_ready_rows
+                    segment_begin = (row_begin > tile_begin).select(row_begin, tile_begin)
+                    segment_end = (row_end < tile_end).select(row_end, tile_end)
+                    for row in range(segment_begin + row0, segment_end, row_stride):
+                        _copy_payload_row(row)
+                    fx.rocdl.s_waitcnt(0)
+                    fx.barrier()
+                    if tid == fx.Int32(0):
+                        _publish_tile_range(
+                            p_tile_ready, destination, destination_base,
+                            segment_begin, segment_end, destination_ready_rows,
+                        )
+                    fx.barrier()
+        else:
+            for row in range(row_begin + row0, row_end, row_stride):
+                _copy_payload_row(row)
+
         if chunk_active:
             fx.rocdl.s_waitcnt(0)
             fx.barrier()
             if tid == fx.Int32(0):
-                if const_expr(payload_tile_ready):
+                if const_expr(payload_tile_ready and not payload_tile_publish_early):
                     _publish_tile_range(
                         p_tile_ready,
                         destination,

@@ -54,8 +54,11 @@ class Stage1Config:
     count_uniform_matrix: bool = False
     row_base_prefetch: bool = False
     prefetch_b_before_a: bool = False
+    joint_work_flags: bool = False
+    preplan_waves: int = 0
     payload_chunk_rows: int = 0
     payload_tile_ready: bool = False
+    payload_tile_publish_early: bool = False
     packed_a_scale: bool = False
     unroll_a_pingpong: bool = False
     split_a_lds: bool = False

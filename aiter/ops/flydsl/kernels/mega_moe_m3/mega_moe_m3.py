@@ -370,8 +370,11 @@ class MegaMoEM3:
             count_uniform_matrix=config.count_uniform_matrix,
             row_base_prefetch=config.row_base_prefetch,
             prefetch_b_before_a=config.prefetch_b_before_a,
+            joint_work_flags=config.joint_work_flags,
+            preplanned=config.preplan_waves > 0,
             external_counting=config.external_counting, payload_chunk_rows=config.payload_chunk_rows,
             payload_tile_ready=config.payload_tile_ready, band_m=config.band_m,
+            payload_tile_publish_early=config.payload_tile_publish_early,
             packed_a_scale=config.packed_a_scale,
             unroll_a_pingpong=config.unroll_a_pingpong,
             split_a_lds=config.split_a_lds,
@@ -386,7 +389,43 @@ class MegaMoEM3:
         self._s1_active_tile_m = config.sort_block_m
         return self._s1_active_tile_m
 
+    def route(self, scores, weights, topk_ids):
+        """Experimental top4 selected-softmax*2 route; pair once with forward on this stream."""
+        from .routing import route_top4
+        cfg = self._select_config(int(scores.shape[0])).stage1
+        if cfg.preplan_waves and (getattr(self, "_preplan_route_pending", False)
+                                 or getattr(self, "_preplan_quant_inputs", ())):
+            raise ValueError("consume the preceding preplanned route/quant before routing again")
+        histogram = self._s1_dispatch_workspace["local_hist"] if cfg.preplan_waves else None
+        result = route_top4(scores, weights, topk_ids, histogram)
+        if cfg.preplan_waves:
+            self._preplan_route_ids = topk_ids
+            self._preplan_route_weights = weights
+            self._preplan_stream = torch.cuda.current_stream().cuda_stream
+            self._preplan_route_pending = True
+        return result
+
     def quantize(self, x_bf16, topk_ids=None, *, stream=None):
+        cfg = self._select_config(int(x_bf16.shape[0]))
+        if cfg.stage1.preplan_waves:
+            s1 = cfg.stage1
+            if (s1.preplan_waves not in (2, 4, 8) or s1.grid_mult != 1
+                    or self._s1_fixed_slot or self.topk != 4
+                    or self.world_size != 8 or self.epr != 16):
+                raise ValueError("preplanning supports compact EP8 top4 with grid_mult=1")
+            stream_ptr = stream if stream is not None else torch.cuda.current_stream().cuda_stream
+            if (not getattr(self, "_preplan_route_pending", False)
+                    or topk_ids is not getattr(self, "_preplan_route_ids", None)
+                    or stream_ptr != self._preplan_stream):
+                raise ValueError("preplanning requires route(scores, weights, topk_ids) first on the same stream")
+            from .quant import preplanned_quant
+            result = preplanned_quant(x_bf16, topk_ids, config=s1, op=self,
+                reset_stage2_queue=cfg.stage2.band_m > 1, stream=stream)
+            self._preplan_quant_inputs = (*result, topk_ids)
+            if self.local_reduce:
+                self._route_quant_inputs = (*result, topk_ids)
+            self._preplan_route_pending = False
+            return result
         if self.local_reduce:
             if topk_ids is None:
                 raise ValueError("local reduction quantize requires current topk_ids")
@@ -400,6 +439,13 @@ class MegaMoEM3:
 
     def _run_joint(self, x, scales, wts, topk_ids, run_tokens, stream, slice_output):
         config = self._select_config(run_tokens)
+        if config.stage1.preplan_waves:
+            prepared = getattr(self, "_preplan_quant_inputs", ())
+            stream_ptr = stream.cuda_stream if stream is not None else torch.cuda.current_stream().cuda_stream
+            if (len(prepared) != 3 or any(a is not b for a,b in zip(prepared,(x,scales,topk_ids)))
+                    or wts is not self._preplan_route_weights or stream_ptr != self._preplan_stream):
+                raise ValueError("preplanned S1 requires its matching route and quant on the same stream")
+            self._preplan_quant_inputs = ()
         reset_queue = config.stage2.band_m > 1
         self._run_fused_stage1(
             x, wts, scales, topk_ids, stream=stream, config=config.stage1,
@@ -446,6 +492,10 @@ class MegaMoEM3:
             if len(prepared) != 3 or any(a.data_ptr() != b.data_ptr()
                     for a, b in zip(prepared, (x_q, scales, topk_ids))):
                 raise ValueError("call quantize(x, topk_ids) before local-reduce forward_prequant")
+        if self._select_config(int(x_q.shape[0])).stage1.preplan_waves:
+            prepared = getattr(self, "_preplan_quant_inputs", ())
+            if len(prepared) != 3 or any(a is not b for a, b in zip(prepared, (x_q, scales, topk_ids))):
+                raise ValueError("preplanned forward_prequant requires matching quantize on the same stream")
         run_tokens = int(x_q.shape[0])
         if run_tokens > self.mtpr:
             raise ValueError(f"run_tokens={run_tokens} > max_tok_per_rank={self.mtpr}")

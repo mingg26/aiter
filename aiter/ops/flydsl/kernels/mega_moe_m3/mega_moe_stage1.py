@@ -78,11 +78,14 @@ def compile_mega_moe_stage1(
     waves_per_eu_hint: int = 2, num_cu: int = 256, num_dispatch_cu: int = 32, b_nt: int = -1,
     work_shards: int | None = None, external_grouping: bool | None = None,
     external_counting: bool | None = None, payload_chunk_rows: int = 0, payload_tile_ready: bool = False,
+    payload_tile_publish_early: bool = False,
     skip_launch_barrier: bool = False,
     padding_uniform_srcmap: bool = False,
     count_uniform_matrix: bool = False,
     row_base_prefetch: bool = False,
     prefetch_b_before_a: bool = False,
+    joint_work_flags: bool = False,
+    preplanned: bool = False,
     band_m: int = 1, swiglu_limit: float = 7.0, swiglu_alpha: float = 1.702, swiglu_beta: float = 1.0,
     packed_a_scale: bool = False,
     unroll_a_pingpong: bool = False,
@@ -111,6 +114,7 @@ def compile_mega_moe_stage1(
     assert dispatch_blocks % fuse_npes == 0, "num_dispatch_cu must be divisible by fuse_npes"
     if payload_chunk_rows:
         assert not fixed_slot_dispatch and payload_chunk_rows % sort_block_m == 0
+    assert not payload_tile_publish_early or payload_tile_ready
     assert not payload_tile_ready or payload_chunk_rows > 0
     assert not skip_launch_barrier or (not fixed_slot_dispatch and payload_chunk_rows == 0), (
         "Skipping launch arrival requires compact COUNT_DONE and all-destination producers"
@@ -185,6 +189,7 @@ def compile_mega_moe_stage1(
     if external_counting is None:
         external_counting = external_grouping and fz_mtpr >= 8192
     assert not external_counting or external_grouping
+    assert not preplanned or (not fixed_slot_dispatch and grid_mult == 1)
     fz_tile_m = int(sort_block_m)
     assert fz_cap % fz_tile_m == 0, f"fuse_cap({fz_cap}) % tile_m({fz_tile_m}) != 0"
     direct_fixed_slot = _use_direct_fixed_slot(
@@ -230,6 +235,7 @@ def compile_mega_moe_stage1(
         f"_pc{payload_chunk_rows}"
         f"_ptr{int(payload_tile_ready)}_bm{BAND_M}"
         f"{swiglu_suffix}"
+        + ("_ptp1" if payload_tile_publish_early else "")
         + ("_pas1" if packed_a_scale else "")
         + ("_upp1" if unroll_a_pingpong else "")
         + ("_sal1" if split_a_lds else "")
@@ -244,6 +250,8 @@ def compile_mega_moe_stage1(
         + ("_cum1" if count_uniform_matrix else "")
         + ("_rbp1" if row_base_prefetch else "")
         + ("_bpa1" if prefetch_b_before_a else "")
+        + ("_jwf1" if joint_work_flags else "")
+        + ("_qplan1" if preplanned else "")
         + "_scratchfix1"
         + ("_s2qr1" if reset_stage2_queue else "")
     )
@@ -302,90 +310,92 @@ def compile_mega_moe_stage1(
         compact_producer = (ticket > fx.Int32(0)) & (ticket <= fx.Int32(dispatch_blocks))
         producer_slot = ticket - fx.Int32(1)
 
-        if compact_owner:
-            next_parity_lane = fx.Int32(0)
-            launch_epoch_lane = fx.Int32(0)
-            if tid == fx.Int32(0):
-                old_parity = _buffer_load(parity_rsrc, fx.Int32(0), fx.Int32)
-                next_parity_lane = old_parity ^ fx.Int32(1)
-                previous_expected = _buffer_load(expected_rsrc, next_parity_lane, fx.Int32)
-                next_expected = previous_expected + fx.Int32(fz_npes)
-                _buffer_store(expected_rsrc, next_parity_lane, next_expected, fx.Int32)
-                launch_epoch_lane = (
-                    (next_expected // fx.Int32(fz_npes)) * fx.Int32(2) - next_parity_lane
-                )
-            next_parity = fx.Int32(fx.rocdl.readfirstlane(T.i32, next_parity_lane))
-            launch_epoch = fx.Int32(fx.rocdl.readfirstlane(T.i32, launch_epoch_lane))
-            if const_expr(payload_tile_ready):
+        if const_expr(not preplanned):
+            if compact_owner:
+                next_parity_lane = fx.Int32(0)
+                launch_epoch_lane = fx.Int32(0)
                 if tid == fx.Int32(0):
-                    comm_ops.store_i32_system(a_payload_ready_rows, fx.Int32(0), fx.Int32(fz_tile_m))
-                    comm_ops.fence_system_release()
-                fx.barrier()
-            # Compact COUNT_DONE already waits for every rank this generation.
-            # Before a previous S1 can finish, its all-destination producers
-            # have seen every peer's PLAN_READY: all old count reads are done.
-            # Thus next-generation count writes may precede peer S1 arrival.
-            # Keep the local reset/gate below; it protects local queue state.
-            if const_expr(not skip_launch_barrier):
-                if tid < fx.Int32(fz_npes):
-                    peer = (tid + fx.Int32(fz_rank)) % fx.Int32(fz_npes)
-                    comm_ops.fence_system_release()
-                    launch_ready_table = _make_buffer_from_addr(p_launch_ready, fx.Int64)
-                    remote_launch_ready = _buffer_load(launch_ready_table, peer, fx.Int64)
-                    comm_ops.store_i32_system(remote_launch_ready, fx.Int32(fz_rank), launch_epoch)
-                    mori_shmem.int32_wait_until_greater_than(
-                        a_launch_ready + fx.Int64(peer) * fx.Int64(4), launch_epoch - fx.Int32(1)
+                    old_parity = _buffer_load(parity_rsrc, fx.Int32(0), fx.Int32)
+                    next_parity_lane = old_parity ^ fx.Int32(1)
+                    previous_expected = _buffer_load(expected_rsrc, next_parity_lane, fx.Int32)
+                    next_expected = previous_expected + fx.Int32(fz_npes)
+                    _buffer_store(expected_rsrc, next_parity_lane, next_expected, fx.Int32)
+                    launch_epoch_lane = (
+                        (next_expected // fx.Int32(fz_npes)) * fx.Int32(2) - next_parity_lane
                     )
-                    comm_ops.fence_system_acquire()
-            if tid == fx.Int32(0):
-                if const_expr(reset_stage2_queue):
-                    # Only the eight queue heads are live; each is 256 B apart.
-                    # The existing wait/release below completes these stores.
-                    # S2 runs after this entire kernel on the same stream.
-                    s2_head_rsrc = _make_buffer_from_addr(addr_stage2_work_head, fx.Int32)
-                    for queue in range_constexpr(8):
-                        _buffer_store(s2_head_rsrc, fx.Int32(queue * 64), fx.Int32(0), fx.Int32)
-                work_head_rsrc = _make_buffer_from_addr(a_work_head, fx.Int32)
-                for shard in range_constexpr(8):
-                    _buffer_store(work_head_rsrc, fx.Int32(shard * 16), fx.Int32(0), fx.Int32)
-                _buffer_store(_make_buffer_from_addr(a_work_tail, fx.Int32), fx.Int32(0), fx.Int32(0), fx.Int32)
-                if const_expr(external_grouping or direct_fixed_slot):
-                    group_done_rsrc = _make_buffer_from_addr(a_group_done, fx.Int32)
-                    for destination in range_constexpr(fz_npes if direct_fixed_slot else 1):
-                        _buffer_store(group_done_rsrc, fx.Int32(destination), fx.Int32(0), fx.Int32)
-            fx.barrier()
-            if tid == fx.Int32(0):
+                next_parity = fx.Int32(fx.rocdl.readfirstlane(T.i32, next_parity_lane))
+                launch_epoch = fx.Int32(fx.rocdl.readfirstlane(T.i32, launch_epoch_lane))
+                if const_expr(payload_tile_ready):
+                    if tid == fx.Int32(0):
+                        comm_ops.store_i32_system(a_payload_ready_rows, fx.Int32(0), fx.Int32(fz_tile_m))
+                        comm_ops.fence_system_release()
+                    fx.barrier()
+                # Compact COUNT_DONE already waits for every rank this generation.
+                # Before a previous S1 can finish, its all-destination producers
+                # have seen every peer's PLAN_READY: all old count reads are done.
+                # Thus next-generation count writes may precede peer S1 arrival.
+                # Keep the local reset/gate below; it protects local queue state.
+                if const_expr(not skip_launch_barrier):
+                    if tid < fx.Int32(fz_npes):
+                        peer = (tid + fx.Int32(fz_rank)) % fx.Int32(fz_npes)
+                        comm_ops.fence_system_release()
+                        launch_ready_table = _make_buffer_from_addr(p_launch_ready, fx.Int64)
+                        remote_launch_ready = _buffer_load(launch_ready_table, peer, fx.Int64)
+                        comm_ops.store_i32_system(remote_launch_ready, fx.Int32(fz_rank), launch_epoch)
+                        mori_shmem.int32_wait_until_greater_than(
+                            a_launch_ready + fx.Int64(peer) * fx.Int64(4), launch_epoch - fx.Int32(1)
+                        )
+                        comm_ops.fence_system_acquire()
+                if tid == fx.Int32(0):
+                    if const_expr(reset_stage2_queue):
+                        # Only the eight queue heads are live; each is 256 B apart.
+                        # The existing wait/release below completes these stores.
+                        # S2 runs after this entire kernel on the same stream.
+                        s2_head_rsrc = _make_buffer_from_addr(addr_stage2_work_head, fx.Int32)
+                        for queue in range_constexpr(8):
+                            _buffer_store(s2_head_rsrc, fx.Int32(queue * 64), fx.Int32(0), fx.Int32)
+                    work_head_rsrc = _make_buffer_from_addr(a_work_head, fx.Int32)
+                    for shard in range_constexpr(8):
+                        _buffer_store(work_head_rsrc, fx.Int32(shard * 16), fx.Int32(0), fx.Int32)
+                    _buffer_store(_make_buffer_from_addr(a_work_tail, fx.Int32), fx.Int32(0), fx.Int32(0), fx.Int32)
+                    if const_expr(external_grouping or direct_fixed_slot):
+                        group_done_rsrc = _make_buffer_from_addr(a_group_done, fx.Int32)
+                        for destination in range_constexpr(fz_npes if direct_fixed_slot else 1):
+                            _buffer_store(group_done_rsrc, fx.Int32(destination), fx.Int32(0), fx.Int32)
+                fx.barrier()
+                if tid == fx.Int32(0):
+                    fx.rocdl.s_waitcnt(0)
+                    comm_ops.fence_agent_release()
+                    _buffer_store(parity_rsrc, fx.Int32(0), next_parity, fx.Int32)
+                    fx.rocdl.s_waitcnt(0)
+                    comm_ops.fence_agent_release()
+                    comm_ops.store_i32_system(gate_addr, fx.Int32(0), gate_epoch)
                 fx.rocdl.s_waitcnt(0)
-                comm_ops.fence_agent_release()
-                _buffer_store(parity_rsrc, fx.Int32(0), next_parity, fx.Int32)
-                fx.rocdl.s_waitcnt(0)
-                comm_ops.fence_agent_release()
-                comm_ops.store_i32_system(gate_addr, fx.Int32(0), gate_epoch)
-            fx.rocdl.s_waitcnt(0)
-            fx.barrier()
-        else:
-            if tid == fx.Int32(0):
-                mori_shmem.int32_wait_until_equals(gate_addr, gate_epoch)
-                comm_ops.fence_agent_acquire()
-            fx.barrier()
+                fx.barrier()
+            else:
+                if tid == fx.Int32(0):
+                    mori_shmem.int32_wait_until_equals(gate_addr, gate_epoch)
+                    comm_ops.fence_agent_acquire()
+                fx.barrier()
 
         payload_parity = _buffer_load(parity_rsrc, fx.Int32(0), fx.Int32, cache_modifier=_SC0_CACHE)
         payload_expected = _buffer_load(expected_rsrc, payload_parity, fx.Int32, cache_modifier=_SC0_CACHE)
 
-        if compact_owner:  # noqa: SIM102 - keep the device and compile-time branches separate.
-            if const_expr(not direct_fixed_slot):
-                emit_dispatch_plan(
-                    num_waves=NUM_WAVES, fz_npes=fz_npes, fz_epr=fz_epr, fz_k=fz_k, fz_mtpr=fz_mtpr,
-                    fz_rank=fz_rank, fz_tile_m=fz_tile_m, fz_total_experts=fz_total_experts, addr_disp=addr_disp,
-                    i32_cur_tok=i32_cur_tok, addr_in_idx=addr_in_idx, parity=payload_parity,
-                    expected=payload_expected, external_grouping=external_grouping,
-                    external_counting=external_counting,
-                    padding_uniform_srcmap=padding_uniform_srcmap,
-                    count_uniform_matrix=count_uniform_matrix,
-                    row_base_prefetch=row_base_prefetch,
-                    dispatch_blocks=dispatch_blocks, payload_chunk_rows=payload_chunk_rows,
-                    payload_tile_ready=payload_tile_ready,
-                )
+        if const_expr(not preplanned):
+            if compact_owner:  # noqa: SIM102 - keep the device and compile-time branches separate.
+                if const_expr(not direct_fixed_slot):
+                    emit_dispatch_plan(
+                        num_waves=NUM_WAVES, fz_npes=fz_npes, fz_epr=fz_epr, fz_k=fz_k, fz_mtpr=fz_mtpr,
+                        fz_rank=fz_rank, fz_tile_m=fz_tile_m, fz_total_experts=fz_total_experts, addr_disp=addr_disp,
+                        i32_cur_tok=i32_cur_tok, addr_in_idx=addr_in_idx, parity=payload_parity,
+                        expected=payload_expected, external_grouping=external_grouping,
+                        external_counting=external_counting,
+                        padding_uniform_srcmap=padding_uniform_srcmap,
+                        count_uniform_matrix=count_uniform_matrix,
+                        row_base_prefetch=row_base_prefetch,
+                        dispatch_blocks=dispatch_blocks, payload_chunk_rows=payload_chunk_rows,
+                        payload_tile_ready=payload_tile_ready,
+                    )
 
         if compact_producer:
             if const_expr(direct_fixed_slot):
@@ -399,7 +409,7 @@ def compile_mega_moe_stage1(
                     parity=payload_parity, expected=payload_expected,
                 )
             else:
-                if const_expr(external_grouping):
+                if const_expr(external_grouping and not preplanned):
                     emit_dispatch_group(
                         num_waves=NUM_WAVES, fz_k=fz_k, fz_total_experts=fz_total_experts, addr_disp=addr_disp,
                         i32_cur_tok=i32_cur_tok, addr_in_idx=addr_in_idx, dispatch_blocks=dispatch_blocks,
@@ -407,11 +417,12 @@ def compile_mega_moe_stage1(
                         external_counting=external_counting, adaptive_grouping=payload_tile_ready,
                     )
                 else:
-                    if tid == fx.Int32(0):
-                        mori_shmem.int32_wait_until_equals(
-                            a_pair_order_ready + fx.Int64(payload_parity) * fx.Int64(4), payload_expected)
-                        comm_ops.fence_agent_acquire()
-                    fx.barrier()
+                    if const_expr(not preplanned):
+                        if tid == fx.Int32(0):
+                            mori_shmem.int32_wait_until_equals(
+                                a_pair_order_ready + fx.Int64(payload_parity) * fx.Int64(4), payload_expected)
+                            comm_ops.fence_agent_acquire()
+                        fx.barrier()
                 producers_per_destination = fx.Int32(dispatch_blocks // fz_npes)
                 chunks_per_destination = fx.Int32(1)
                 if const_expr(payload_chunk_rows > 0):
@@ -441,6 +452,7 @@ def compile_mega_moe_stage1(
                         producer_slot=producer_slot, parity=payload_parity, expected=payload_expected,
                         producers_per_destination=producers_per_destination, payload_chunk_rows=payload_chunk_rows,
                         chunks_per_destination=chunks_per_destination, payload_tile_ready=payload_tile_ready,
+                        payload_tile_publish_early=payload_tile_publish_early,
                     )
         if const_expr(direct_fixed_slot):
             if compact_owner:
@@ -495,13 +507,14 @@ def compile_mega_moe_stage1(
             swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
         )
 
-        if tid == fx.Int32(0):
-            local_plan_ready = _buffer_load(disp_rsrc, fx.Int32(int(DispatchSlot.PLAN_READY)), fx.Int64)
-            ready_index = payload_parity * fx.Int32(fz_npes) + fx.Int32(fz_rank)
-            mori_shmem.int32_wait_until_equals(
-                local_plan_ready + fx.Int64(ready_index) * fx.Int64(4), payload_expected)
-            comm_ops.fence_agent_acquire()
-        fx.barrier()
+        if const_expr(not preplanned):
+            if tid == fx.Int32(0):
+                local_plan_ready = _buffer_load(disp_rsrc, fx.Int32(int(DispatchSlot.PLAN_READY)), fx.Int64)
+                ready_index = payload_parity * fx.Int32(fz_npes) + fx.Int32(fz_rank)
+                mori_shmem.int32_wait_until_equals(
+                    local_plan_ready + fx.Int64(ready_index) * fx.Int64(4), payload_expected)
+                comm_ops.fence_agent_acquire()
+            fx.barrier()
 
         num_valid = _buffer_load(nv_rsrc, fx.Int32(0), fx.Int32)
         num_m_tiles = ceildiv(num_valid, fx.Int32(sort_block_m))
@@ -540,7 +553,9 @@ def compile_mega_moe_stage1(
 
         consumer_active = fx.Int32(1) == fx.Int32(1)
         work_scratch = fx.recast_iter(fx.Int32, a_buf.ptr)
-        work_scratch_view = fx.make_view(work_scratch, fx.make_layout(1, 1))
+        work_scratch_view = fx.make_view(
+            work_scratch, fx.make_layout(2 if joint_work_flags else 1, 1)
+        )
         work_shard = ticket & fx.Int32(WORK_SHARDS - 1)
         if const_expr(xcd_schedule or schedule_audit):
             physical_xcd = fx.Int32(llvm.inline_asm(
@@ -551,6 +566,7 @@ def compile_mega_moe_stage1(
             # queues, so sparse placement/migration cannot leave work undone.
             home_queue = physical_xcd & fx.Int32(7)
         queue_attempt = fx.Int32(0)
+        flags = fx.Int32(0)
         while consumer_active:
             if const_expr(xcd_schedule):
                 work_shard = (home_queue + queue_attempt) & fx.Int32(7)
@@ -582,38 +598,65 @@ def compile_mega_moe_stage1(
                     work = local_band * fx.Int32(BAND_M * N_TILES) + n_tile * fx.Int32(BAND_M) + local_rem % fx.Int32(BAND_M)
                 else:
                     work = work_shard + local_work * fx.Int32(WORK_SHARDS)
-                fx.ptr_store(Vec.from_elements([work], fx.Int32), work_scratch)
-            fx.barrier()
-            work = Vec(work_scratch_view.load())[0]
-            # All waves must consume the ticket before the leader overwrites
-            # this LDS word with flags. Otherwise a late wave can use 3 as work.
-            fx.barrier()
-            if tid == fx.Int32(0):
-                # bit0 = keep drawing tickets, bit1 = this ticket is a real tile.
-                # They differ only for a padded band's tail: those tickets must be
-                # SKIPPED rather than terminate the loop, because the ticket
-                # counter is monotonic -- retiring on one would drop every tile
-                # behind it.
-                in_range = (work < total_work).select(fx.Int32(1), fx.Int32(0))
-                if const_expr(small_xcd):
-                    keep_drawing = (work <= total_work).select(fx.Int32(1), fx.Int32(0))
-                    flags = keep_drawing | (in_range << fx.Int32(1))
-                elif const_expr(BAND_M == 1):
-                    flags = in_range | (in_range << fx.Int32(1))
+                if const_expr(joint_work_flags):
+                    # Publish the ticket and its skip/continue flags together.
+                    # Keep both as i32 so no ticket bits are lost by packing.
+                    publish_in_range = (work < total_work).select(fx.Int32(1), fx.Int32(0))
+                    if const_expr(small_xcd):
+                        publish_keep_drawing = (work <= total_work).select(fx.Int32(1), fx.Int32(0))
+                        publish_flags = publish_keep_drawing | (publish_in_range << fx.Int32(1))
+                    elif const_expr(BAND_M == 1):
+                        publish_flags = publish_in_range | (publish_in_range << fx.Int32(1))
+                    else:
+                        publish_valid = (_m_tile_of_flat(work) < num_m_tiles).select(
+                            fx.Int32(1), fx.Int32(0)
+                        )
+                        publish_flags = publish_in_range | ((publish_in_range * publish_valid) << fx.Int32(1))
+                    if (publish_flags & fx.Int32(2)) != fx.Int32(0):
+                        if const_expr(not direct_fixed_slot and not prefetch_b_before_a):
+                            _wait_tile_payload(work)
+                    fx.ptr_store(Vec.from_elements([work, publish_flags], fx.Int32), work_scratch)
                 else:
-                    valid = (_m_tile_of_flat(work) < num_m_tiles).select(
-                        fx.Int32(1), fx.Int32(0)
-                    )
-                    flags = in_range | ((in_range * valid) << fx.Int32(1))
-                if (flags & fx.Int32(2)) != fx.Int32(0):  # noqa: SIM102 - keep the device and compile-time branches separate.
-                    if const_expr(not direct_fixed_slot and not prefetch_b_before_a):
-                        _wait_tile_payload(work)
-                fx.ptr_store(Vec.from_elements([flags], fx.Int32), work_scratch)
+                    fx.ptr_store(Vec.from_elements([work], fx.Int32), work_scratch)
             fx.barrier()
-            flags = Vec(work_scratch_view.load())[0]
-            # The word aliases GEMM A LDS and the next iteration's ticket.
-            # Finish every wave's flags load before either reuses that storage.
-            fx.barrier()
+            if const_expr(joint_work_flags):
+                work_and_flags = Vec(work_scratch_view.load())
+                work = work_and_flags[0]
+                flags = work_and_flags[1]
+                # All waves must load both words before A LDS or the next
+                # ticket reuses them, including skipped and exhausted tickets.
+                fx.barrier()
+            else:
+                work = Vec(work_scratch_view.load())[0]
+                # All waves must consume the ticket before the leader overwrites
+                # this LDS word with flags. Otherwise a late wave can use 3 as work.
+                fx.barrier()
+                if tid == fx.Int32(0):
+                    # bit0 = keep drawing tickets, bit1 = this ticket is a real tile.
+                    # They differ only for a padded band's tail: those tickets must be
+                    # SKIPPED rather than terminate the loop, because the ticket
+                    # counter is monotonic -- retiring on one would drop every tile
+                    # behind it.
+                    in_range = (work < total_work).select(fx.Int32(1), fx.Int32(0))
+                    if const_expr(small_xcd):
+                        keep_drawing = (work <= total_work).select(fx.Int32(1), fx.Int32(0))
+                        flags = keep_drawing | (in_range << fx.Int32(1))
+                    elif const_expr(BAND_M == 1):
+                        flags = in_range | (in_range << fx.Int32(1))
+                    else:
+                        valid = (_m_tile_of_flat(work) < num_m_tiles).select(
+                            fx.Int32(1), fx.Int32(0)
+                        )
+                        flags = in_range | ((in_range * valid) << fx.Int32(1))
+                    if (flags & fx.Int32(2)) != fx.Int32(0):  # noqa: SIM102 - keep the device and compile-time branches separate.
+                        if const_expr(not direct_fixed_slot and not prefetch_b_before_a):
+                            _wait_tile_payload(work)
+                    fx.ptr_store(Vec.from_elements([flags], fx.Int32), work_scratch)
+                fx.barrier()
+                flags = Vec(work_scratch_view.load())[0]
+                # The word aliases GEMM A LDS and the next iteration's ticket.
+                # Finish every wave's flags load before either reuses that storage.
+                fx.barrier()
             if (flags & fx.Int32(2)) != fx.Int32(0):
                 if const_expr(not direct_fixed_slot and not prefetch_b_before_a):
                     comm_ops.fence_system_acquire()
@@ -671,7 +714,9 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
     count_uniform_matrix=False,
     row_base_prefetch=False,
     prefetch_b_before_a=False,
-    payload_chunk_rows=0, payload_tile_ready=False, band_m=1, swiglu_limit=0.0,
+    joint_work_flags=False,
+    preplanned=False,
+    payload_chunk_rows=0, payload_tile_ready=False, payload_tile_publish_early=False, band_m=1, swiglu_limit=0.0,
     swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, xcd_schedule=False, schedule_audit=False, stage2_work_head=0):
     launch = compile_mega_moe_stage1(
         model_dim=model_dim, inter_dim=inter_dim, rank=rank, experts_per_rank=experts_per_rank,
@@ -688,7 +733,10 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
         count_uniform_matrix=count_uniform_matrix,
         row_base_prefetch=row_base_prefetch,
         prefetch_b_before_a=prefetch_b_before_a,
+        joint_work_flags=joint_work_flags,
+        preplanned=preplanned,
         payload_tile_ready=payload_tile_ready, band_m=band_m,
+        payload_tile_publish_early=payload_tile_publish_early,
         packed_a_scale=packed_a_scale,
         unroll_a_pingpong=unroll_a_pingpong,
         split_a_lds=split_a_lds,
