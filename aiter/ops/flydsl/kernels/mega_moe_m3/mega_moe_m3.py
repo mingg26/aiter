@@ -115,8 +115,8 @@ class MegaMoEM3:
         if shared_w2 is not None:
             if self._shared_l13 is None or not self._shared_xcd_schedule:
                 raise ValueError("shared L2 requires shared L13 and XCD scheduling")
-            if (self.model_dim, self.inter_dim, self.mtpr) != (6144, 3072, 8192):
-                raise ValueError("shared L2 currently supports H6144/I3072/T8192")
+            if (self.model_dim, self.inter_dim) != (6144, 3072) or self.mtpr not in (256, 8192):
+                raise ValueError("shared L2 supports H6144/I3072 with 256 or 8192 local tokens")
             self._shared_w2 = shared_w2.contiguous().view(torch.uint8)
             self._shared_w2_scale = shared_w2_scale.contiguous().view(torch.uint8)
             if self._shared_w2.numel() != self.model_dim * self.inter_dim:
@@ -639,10 +639,12 @@ class MegaMoEM3:
             shared_l2=self._shared_l2.data_ptr() if self._shared_l2 is not None else 0, **invariants)
         # fmt: on
         self._g2_active_block_m = stage2.block_m
+        prefetch_local = self._shared_l2 is not None and not self.local_reduce and run_tokens == 256
         return comb_op.combine_no_stage1(
             self._shared_out if self._shared_l2 is not None else self._g2_combine_placeholder,
             None, None, cur_tok=run_tokens, enable_weights=False,
             shared_input=self._shared_l2 is not None,
             stage2_p2p_quant=p2p_quant,
-            stage2_topk_ids=self._s2_topk_ids if self.local_reduce else None,
+            stage2_topk_ids=self._s2_topk_ids if self.local_reduce or prefetch_local else None,
+            prefetch_local=prefetch_local,
         )

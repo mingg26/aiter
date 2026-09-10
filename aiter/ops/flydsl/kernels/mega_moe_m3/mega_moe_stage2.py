@@ -347,7 +347,8 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         assert local_reduce and persist and band_m > 1 and xcd_schedule, (
             "XCD-local staging requires local reduction and physical-XCD queues")
     if shared_l2:
-        assert (model_dim, inter_dim, max_tok, BM, BN, BK, SBM) == (6144, 3072, 8192, 64, 128, 128, 128)
+        assert (model_dim, inter_dim) == (6144, 3072)
+        assert (max_tok, BM, BN, BK, SBM) in ((256, 32, 128, 256, 64), (8192, 64, 128, 128, 128))
         assert persist and xcd_schedule and band_m > 1 and max_tok % (BM * band_m) == 0
         assert p2p_quant_type == "none" and not has_pad
     log2_max_tok = max_tok.bit_length() - 1

@@ -39,7 +39,7 @@ from .communication_ops_utils import (
 )
 
 # Bump when generated kernel shape changes.
-_DISPATCH_COMBINE_JIT_SCHEMA_VERSION = "v11-stage2-bf16-local-reduce"
+_DISPATCH_COMBINE_JIT_SCHEMA_VERSION = "v12-combine-fp32-local-prefetch"
 
 # Stage-3 switches from narrow step=64 to wide step=128/256 above this threshold.
 _S3_WIDE_PATH_THRESHOLD_I32 = 895
@@ -435,6 +435,7 @@ def make_combine_kernel(
     fp8_direct_cast: bool = False,
     blockwise_fp8_transport: bool = False,
     local_reduce_epr: int = 0,
+    prefetch_local_epr: int = 0,
     shared_input: bool = False,
     max_recv: int | None = None,
 ):
@@ -471,6 +472,17 @@ def make_combine_kernel(
             and not enable_weights and not enable_std_moe and not zero_copy
             and not fp8_direct_cast and not blockwise_fp8_transport):
         raise ValueError("shared input requires fused BF16 combine")
+    if prefetch_local_epr:
+        if not (shared_input and not local_reduce_epr and npes == 8
+                and experts_per_token == 4 and prefetch_local_epr == 16
+                and hidden_dim == 6144 and max_tok_per_rank == 256):
+            raise ValueError("local prefetch requires EP8/top4/H6144/T256 shared BF16 combine")
+        prefetch_warps_per_tok = block_num * warp_num_per_block // max_tok_per_rank
+        if (block_num * warp_num_per_block % max_tok_per_rank
+                or prefetch_warps_per_tok < 2
+                or (hidden_dim // 2) % (64 * prefetch_warps_per_tok)):
+            raise ValueError("local prefetch needs an exact, bounded warp partition per token")
+        prefetch_words = hidden_dim // 2 // prefetch_warps_per_tok // 64
     _xfer_bf16_to_fp8 = fp8_direct_cast
     _transport_dtype = torch.float8_e4m3fn if _xfer_bf16_to_fp8 else data_type
 
@@ -596,14 +608,15 @@ def make_combine_kernel(
         def _zero_accum():
             return Vec.filled(4, 0.0, fx.Float32)
 
-    def _accum_experts(vals):
-        """Reduce the k per-expert i32 partials into one merged i32 (widen to f32,
-        sum, narrow back). No validity mask needed: invalid tok_map slots are
-        sentinel-encoded and _maybe_load zeroes them, so they fold in as +0."""
+    def _accum_experts_f32(vals):
+        """Accumulate the routed partials in slot order without narrowing."""
         acc = _to_accum(vals[0])
         for k_slot in range(1, len(vals)):
             acc = acc + _to_accum(vals[k_slot])
-        return _from_accum(acc)
+        return acc
+
+    def _accum_experts(vals):
+        return _from_accum(_accum_experts_f32(vals))
 
     def _weighted_accum_experts(vals, wts, vlds, all_vld):
         """Weighted ``sum(wt[k] * val[k])`` (StdMoE Stage 1; fp8_direct_cast is
@@ -640,7 +653,13 @@ def make_combine_kernel(
         type("_SharedStorage", (), {"__annotations__": _lds_fields})
     )
 
-    @flyc.kernel(known_block_size=[warp_num_per_block * 64, 1, 1])
+    combine_kernel_name = "ep_combine_intranode"
+    if prefetch_local_epr:
+        combine_kernel_name += "_pf_local_shared_f32"
+    elif shared_input:
+        combine_kernel_name += "_shared_f32"
+
+    @flyc.kernel(name=combine_kernel_name, known_block_size=[warp_num_per_block * 64, 1, 1])
     def ep_combine_intranode(
         addr_inp_tok: fx.Int64,  # inp_tok base (post-expert token buffer)
         addr_shmem_tok: fx.Int64,  # shmem_comb_inp base (symmetric)
@@ -926,6 +945,39 @@ def make_combine_kernel(
         if grid_thread_id == 0:
             atomic_add_global_at(addr_xdb_flag, fx.Int64(1))
 
+        # Publish this rank's completion before prefetching local payloads.
+        # Only local producers are complete at this point. A zero-length
+        # descriptor suppresses every pre-barrier access to a remote slot.
+        if const_expr(prefetch_local_epr > 0):
+            prefetch_tok = global_warp_id // prefetch_warps_per_tok
+            prefetch_part = global_warp_id % prefetch_warps_per_tok
+            prefetch_col = prefetch_part * (prefetch_words * 64) + lane
+            prefetch_route = create_buffer_resource_from_addr(addr_stage2_topk_ids)
+            prefetch_shared_rsrc = create_buffer_resource_from_addr(addr_inp_tok,
+                num_records_bytes=max_tok_per_rank * hidden_dim * 2)
+            local_flags = []
+            local_values = []
+            remote_resources = []
+            for k_slot in range_constexpr(experts_per_token):
+                eid = buffer_load(prefetch_route, prefetch_tok * experts_per_token + k_slot,
+                    vec_width=1, dtype=T.i32)
+                eid = fx.Int32(readfirstlane(T.i32, fx.Int32(eid).ir_value()))
+                is_local = (eid >= 0) & (eid // prefetch_local_epr == rank)
+                local_flags.append(is_local)
+                partial_addr = _wave_uniform_i64(addr_shmem_tok
+                    + fx.Int64(prefetch_tok * experts_per_token + k_slot) * nbytes)
+                local_rsrc = create_buffer_resource_from_addr(partial_addr,
+                    num_records_bytes=is_local.select(fx.Int32(nbytes), fx.Int32(0)))
+                remote_resources.append(create_buffer_resource_from_addr(partial_addr,
+                    num_records_bytes=is_local.select(fx.Int32(0), fx.Int32(nbytes))))
+                local_values.append([buffer_load(local_rsrc, prefetch_col + j * 64,
+                    vec_width=1, dtype=T.i32, cache_modifier=_SLC_CACHE)
+                    for j in range_constexpr(prefetch_words)])
+            shared_values = [buffer_load(prefetch_shared_rsrc,
+                prefetch_tok * n_i32 + prefetch_col + j * 64,
+                vec_width=1, dtype=T.i32, cache_modifier=_SLC_CACHE)
+                for j in range_constexpr(prefetch_words)]
+
         if tid < npes:
             xdb_peer_slot = addr_shmem_xdb_mem + fx.Int64(tid) * 8
             mori_shmem.uint64_wait_until_equals(xdb_peer_slot, xdb_cur_flag)
@@ -959,6 +1011,19 @@ def make_combine_kernel(
         else:
             hdim_per_warp = (n_elems + warps_per_tok - 1) // warps_per_tok
         s3_total_work = cur_rank_num_token * warps_per_tok
+
+        if const_expr(prefetch_local_epr > 0):
+            for j in range_constexpr(prefetch_words):
+                vals = []
+                for k_slot in range_constexpr(experts_per_token):
+                    remote = buffer_load(remote_resources[k_slot], prefetch_col + j * 64,
+                        vec_width=1, dtype=T.i32, cache_modifier=_SLC_CACHE)
+                    vals.append(local_flags[k_slot].select(local_values[k_slot][j], remote))
+                accum = _accum_experts_f32(vals) + _to_accum(shared_values[j])
+                buffer_store(_from_accum(accum), rsrc_out,
+                    prefetch_tok * n_i32 + prefetch_col + j * 64,
+                    cache_modifier=_SLC_CACHE)
+            return
 
         for s3_work_idx in range(global_warp_id, s3_total_work, global_warp_num):
             tok_id = s3_work_idx // warps_per_tok
@@ -1127,6 +1192,8 @@ def make_combine_kernel(
                                 + _to_accum(vals[u][k_slot]) * scales[u][k_slot]
                             )
                         acc = _from_accum(fp32_acc)
+                    elif const_expr(shared_input):
+                        fp32_acc = _accum_experts_f32(vals[u])
                     else:
                         acc = _accum_experts(vals[u])
                     kw = {"cache_modifier": SLC_CACHE}
@@ -1134,8 +1201,8 @@ def make_combine_kernel(
                         kw["soffset_bytes"] = u * out_step
                     if const_expr(shared_input):
                         shared = buffer_load(rsrc_shared, out_off, vec_width=1, dtype=T.i32, **kw)
-                        # Preserve routed BF16 rounding before the final BF16 add.
-                        acc = _from_accum(_to_accum(acc) + _to_accum(shared))
+                        # Routed and shared are added in FP32, then rounded once.
+                        acc = _from_accum(fp32_acc + _to_accum(shared))
                     buffer_store(acc, rsrc_out, out_off, **kw)
 
             def _accum_loop(end, U, hdim_off=hdim_off):
@@ -1368,6 +1435,7 @@ def make_combine_jit(
     fp8_direct_cast: bool = False,
     blockwise_fp8_transport: bool = False,
     local_reduce_epr: int = 0,
+    prefetch_local_epr: int = 0,
     shared_input: bool = False,
     max_recv=None,
 ):
@@ -1394,6 +1462,7 @@ def make_combine_jit(
         fp8_direct_cast=fp8_direct_cast,
         blockwise_fp8_transport=blockwise_fp8_transport,
         local_reduce_epr=local_reduce_epr,
+        prefetch_local_epr=prefetch_local_epr,
         shared_input=shared_input,
         max_recv=max_recv,
     )
@@ -1410,6 +1479,7 @@ def make_combine_jit(
     _key_blockwise_fp8_transport = bool(blockwise_fp8_transport)
     _key_shared_input = bool(shared_input)
     _key_local_reduce_epr = local_reduce_epr
+    _key_prefetch_local_epr = prefetch_local_epr
     _key_max_recv = max_recv if max_recv is not None else npes * max_tok_per_rank
     # See dispatch launcher for the ``str(torch.dtype)`` rationale.
     _key_data_type = str(data_type)
@@ -1452,6 +1522,7 @@ def make_combine_jit(
             _key_fp8_direct_cast,
             _key_blockwise_fp8_transport,
             _key_local_reduce_epr,
+            _key_prefetch_local_epr,
             _key_shared_input,
             _key_max_recv,
             _key_data_type,
