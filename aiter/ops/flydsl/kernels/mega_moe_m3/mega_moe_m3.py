@@ -92,13 +92,16 @@ class MegaMoEM3:
         if (shared_w13 is None) != (shared_w13_scale is None):
             raise ValueError("shared_w13 and shared_w13_scale must be provided together")
         if shared_w13 is not None:
-            if self.mtpr != 8192:
-                raise ValueError("shared L13 experiment currently supports 8192 local tokens")
+            if self.mtpr not in (256, 8192):
+                raise ValueError("shared L13 supports full 256 or 8192 local tokens")
+            if (self.model_dim, self.inter_dim, self.world_size, self.topk) != (6144, 3072, 8, 4):
+                raise ValueError("shared L13 requires EP8/top4/H6144/I3072")
             self._shared_w13 = shared_w13.contiguous().view(torch.uint8)
             self._shared_w13_scale = shared_w13_scale.contiguous().view(torch.uint8)
             self._shared_a2 = torch.empty((self.mtpr, self.inter_dim), device=self.dev, dtype=torch.float8_e4m3fn)
             self._shared_a2_scale = torch.empty(self.mtpr * (self.inter_dim // 32) + 8192, device=self.dev, dtype=torch.uint8)
-            self._shared_rows = torch.arange(self.mtpr // 128, device=self.dev, dtype=torch.int32) * 128
+            shared_tile_m = 64 if self.mtpr == 256 else 128
+            self._shared_rows = torch.arange(self.mtpr // shared_tile_m, device=self.dev, dtype=torch.int32) * shared_tile_m
             self._shared_experts = torch.full_like(self._shared_rows, self.rank * self.epr)
             # Separate cache lines for the eight shared XCD queue heads.
             self._shared_task_count = torch.zeros(8 * 8, device=self.dev, dtype=torch.int64)
@@ -386,7 +389,7 @@ class MegaMoEM3:
         if config is None:
             config = self._select_config(cur_tok).stage1
         if self._shared_l13 is not None and cur_tok != self.mtpr:
-            raise ValueError("shared L13 experiment requires the full 8192-token batch")
+            raise ValueError("shared L13 requires the full configured local batch")
         op = self._s1_op
         # fmt: off
         self._s1_mega(

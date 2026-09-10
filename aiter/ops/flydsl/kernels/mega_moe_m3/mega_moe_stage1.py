@@ -129,10 +129,13 @@ def compile_mega_moe_stage1(
     assert BAND_M == 1 or payload_tile_ready or xcd_schedule, "finite small-XCD bands retain per-expert waits"
     assert not shared_xcd or shared_l13
     if shared_l13:
-        # Initial experiment: a full local shared expert with the routed geometry.
-        assert preplanned and xcd_schedule and payload_tile_ready
-        assert use_tile_resource and prefetch_b_before_a and not schedule_audit
-        assert (sort_block_m, tile_n, tile_k, num_waves, band_m) == (128, 256, 256, 8, 4)
+        assert preplanned and xcd_schedule and prefetch_b_before_a and not schedule_audit
+        if int(fuse_mtpr) == 256:
+            assert shared_xcd and not payload_tile_ready and not use_tile_resource
+            assert (sort_block_m, tile_n, tile_k, num_waves, band_m) == (64, 512, 256, 8, 4)
+        else:
+            assert int(fuse_mtpr) == 8192 and payload_tile_ready and use_tile_resource
+            assert (sort_block_m, tile_n, tile_k, num_waves, band_m) == (128, 256, 256, 8, 4)
     planner_blocks = 1
     # Keep the fused grid on an exact CU multiple instead of appending control/producer CTAs as a tail.
     grid_x = num_cu * grid_mult - planner_blocks - dispatch_blocks
@@ -264,6 +267,7 @@ def compile_mega_moe_stage1(
         + ("_shxcd1" if shared_xcd else "")
         + ("_shu1" if shared_l13 else "")
         + ("_shna2" if shared_l13 else "")
+        + ("_shsmall1" if shared_l13 and small_xcd else "")
     )
 
     @flyc.kernel(name=kernel_name, known_block_size=[TOTAL_THREADS, 1, 1])
@@ -526,6 +530,8 @@ def compile_mega_moe_stage1(
             shared_work = shared_m_tiles * fx.Int32(N_TILES)
 
             def _m_tile_of_flat(flat):
+                if const_expr(small_xcd):
+                    return flat // fx.Int32(N_TILES)
                 return (flat // fx.Int32(BAND_M * N_TILES)) * fx.Int32(BAND_M) + flat % fx.Int32(BAND_M)
 
             def expert_of_flat(flat):
@@ -566,6 +572,7 @@ def compile_mega_moe_stage1(
 
         num_valid = _buffer_load(nv_rsrc, fx.Int32(0), fx.Int32)
         num_m_tiles = ceildiv(num_valid, fx.Int32(sort_block_m))
+        routed_m_tiles = num_m_tiles
         if const_expr(shared_l13):
             num_m_tiles = num_m_tiles + shared_m_tiles
         if const_expr(BAND_M == 1 or small_xcd):
@@ -643,14 +650,15 @@ def compile_mega_moe_stage1(
                 # the two local N slots after each finite M band.
                 # Return canonical m*N+n indices to the unchanged GEMM.
                 m_index = (local_work // fx.Int32(2 * BAND_M)) * fx.Int32(BAND_M) + local_work % fx.Int32(BAND_M)
-                safe_m = (m_index < num_m_tiles).select(m_index, fx.Int32(0))
+                safe_m = (m_index < routed_m_tiles).select(m_index, fx.Int32(0))
                 e_index = expert_of_flat(safe_m * fx.Int32(N_TILES))
                 n_first = (work_shard + e_index * fx.Int32(4)) & fx.Int32(7)
                 n_index = n_first + ((local_work // fx.Int32(BAND_M)) % fx.Int32(2)) * fx.Int32(8)
                 mapped_work = m_index * fx.Int32(N_TILES) + n_index
-                valid_or_skip = ((n_index < fx.Int32(N_TILES)) & (m_index < num_m_tiles)).select(mapped_work, total_work)
-                ticket_count = ceildiv(num_m_tiles, fx.Int32(BAND_M)) * fx.Int32(2 * BAND_M)
-                work = (local_work < ticket_count).select(valid_or_skip, total_work + fx.Int32(1))
+                routed_work_limit = routed_m_tiles * fx.Int32(N_TILES)
+                valid_or_skip = ((n_index < fx.Int32(N_TILES)) & (m_index < routed_m_tiles)).select(mapped_work, routed_work_limit)
+                ticket_count = ceildiv(routed_m_tiles, fx.Int32(BAND_M)) * fx.Int32(2 * BAND_M)
+                work = (local_work < ticket_count).select(valid_or_skip, routed_work_limit + fx.Int32(1))
             elif const_expr(xcd_schedule):
                 # Each XCD owns three N panels in the H6144/I3072 case.
                 # Within a ready M band, adjacent claims reuse the B panel.
@@ -668,10 +676,23 @@ def compile_mega_moe_stage1(
                     shared_claim = shared_work
                     if shared_active:
                         if const_expr(shared_xcd):
-                            shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
-                                shared_count_addr + fx.Int64(work_shard) * fx.Int64(64), fx.Int64(1))) % shared_count_period)
-                            shared_claim = (shared_local < fx.Int32(shared_tasks_per_queue)).select(
-                                _decode_xcd(shared_local, work_shard), total_work + fx.Int32(1))
+                            if const_expr(small_xcd):
+                                # Four M tiles, twelve N panels: queues 0..3
+                                # own two panels, queues 4..7 own one. Every
+                                # CTA exhausts each queue exactly once.
+                                shared_limit = (work_shard < fx.Int32(4)).select(fx.Int32(8), fx.Int32(4))
+                                shared_period = fx.Int64(shared_limit) + fx.Int64(launch_grid_x)
+                                shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
+                                    shared_count_addr + fx.Int64(work_shard) * fx.Int64(64), fx.Int64(1))) % shared_period)
+                                shared_m = shared_local % fx.Int32(4)
+                                shared_n = work_shard + (shared_local // fx.Int32(4)) * fx.Int32(8)
+                                shared_claim = (shared_local < shared_limit).select(
+                                    shared_m * fx.Int32(N_TILES) + shared_n, total_work + fx.Int32(1))
+                            else:
+                                shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
+                                    shared_count_addr + fx.Int64(work_shard) * fx.Int64(64), fx.Int64(1))) % shared_count_period)
+                                shared_claim = (shared_local < fx.Int32(shared_tasks_per_queue)).select(
+                                    _decode_xcd(shared_local, work_shard), total_work + fx.Int32(1))
                         else:
                             shared_claim = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(shared_count_addr, fx.Int64(1))) % shared_count_period)
                     if const_expr(shared_xcd):
@@ -776,8 +797,13 @@ def compile_mega_moe_stage1(
                     selected_expert = _make_buffer_from_addr(_selected_addr(is_shared, 5, expert_ids), fx.Int32)
                     selected_os = _make_buffer_from_addr(_selected_addr(is_shared, 3, out_scale), fx.Int8,
                         num_records_bytes=is_shared.select(i32_cur_tok * fx.Int32(scale_cols) + fx.Int32(8192), os_nbytes))
+                    if const_expr(use_tile_resource):
+                        selected_out_rsrc = None
+                    else:
+                        selected_out_rsrc = _make_buffer_from_addr(_selected_addr(is_shared, 2, out), fx.Int16,
+                            num_records_bytes=is_shared.select(i32_cur_tok, tokens) * fx.Int32(inter_dim))
                     _, _, run_selected = _build_runner(selected_x, selected_w, selected_sw, selected_sx,
-                        None, selected_os, selected_trb, selected_expert, selected_out, is_shared)
+                        selected_out_rsrc, selected_os, selected_trb, selected_expert, selected_out, is_shared)
                     tile_work = is_shared.select(uniform_work, uniform_work - shared_work)
 
                     def _wait_selected(ignored):
