@@ -1328,8 +1328,8 @@ class FlyDSLDispatchCombineIntraNodeOp:
             if not prefetch_local:
                 local_reduce_epr = cfg.num_experts_per_rank
         if prefetch_local and not (stage2_topk_ids is not None and shared_input
-                and int(cur_tok) == 256 and cfg.max_num_inp_token_per_rank == 256):
-            raise ValueError("local prefetch requires full 256-token shared combine and topk ids")
+                and int(cur_tok) in (16, 32, 64, 128, 256) and cfg.max_num_inp_token_per_rank == int(cur_tok)):
+            raise ValueError("local prefetch requires full 16/32/64/128/256-token shared combine and topk ids")
         if shared_input:
             if not (skip_stage1 and p2p_quant == "none" and not enable_weights
                     and not cfg.zero_copy and not cfg.enable_std_moe and not fp8_dc

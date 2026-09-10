@@ -130,7 +130,7 @@ def compile_mega_moe_stage1(
     assert not shared_xcd or shared_l13
     if shared_l13:
         assert preplanned and xcd_schedule and prefetch_b_before_a and not schedule_audit
-        if int(fuse_mtpr) == 256:
+        if int(fuse_mtpr) in (16, 32, 64, 128, 256):
             assert shared_xcd and not payload_tile_ready and not use_tile_resource
             assert (sort_block_m, tile_n, tile_k, num_waves, band_m) == (64, 512, 256, 8, 4)
         else:
@@ -162,7 +162,7 @@ def compile_mega_moe_stage1(
         assert WORK_SHARDS == 8
         if small_xcd:
             assert (sort_block_m, tile_n, tile_k, N_TILES) == (64, 512, 256, 12)
-            assert fuse_mtpr in (256, 512, 1024)
+            assert fuse_mtpr in (16, 32, 64, 128, 256, 512, 1024)
             assert not fixed_slot_dispatch
         else:
             assert N_TILES % 8 == 0 and payload_tile_ready and BAND_M > 1
@@ -519,6 +519,8 @@ def compile_mega_moe_stage1(
                 fp8_b_waitcnt=fp8_b_waitcnt,
                 prefetch_a_operand=prefetch_a_operand,
                 scalar_tile_row_base=scalar_tile_row_base, bf16_intermediate=shared_flag,
+                a_tile_bytes=(shared_flag.select(fx.Int32(fuse_mtpr * model_dim), fx.Int32(sort_block_m * model_dim))
+                    if shared_flag is not None and fuse_mtpr < sort_block_m else None),
                 swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
             )
 
@@ -526,7 +528,10 @@ def compile_mega_moe_stage1(
             expert_of_flat, _m_tile_of_flat, _do_scheduled_tile = _build_runner(
                 x, w_rsrc, sw_rsrc, sx_rsrc, out_rsrc, os_rsrc, trb_rsrc, expert_rsrc, out)
         else:
-            shared_m_tiles = i32_cur_tok // fx.Int32(sort_block_m)
+            if const_expr(fuse_mtpr < sort_block_m):
+                shared_m_tiles = (i32_cur_tok + fx.Int32(sort_block_m - 1)) // fx.Int32(sort_block_m)
+            else:
+                shared_m_tiles = i32_cur_tok // fx.Int32(sort_block_m)
             shared_work = shared_m_tiles * fx.Int32(N_TILES)
 
             def _m_tile_of_flat(flat):
@@ -543,7 +548,7 @@ def compile_mega_moe_stage1(
             # Each head therefore advances by its valid tasks + launch_grid_x
             # per invocation, even when the physical XCD placement is uneven.
             # This gives graph-safe epochs without a reset kernel or barrier.
-            shared_tasks_per_queue = fuse_mtpr // sort_block_m * N_TILES // (8 if shared_xcd else 1)
+            shared_tasks_per_queue = ((fuse_mtpr + sort_block_m - 1) // sort_block_m) * N_TILES // (8 if shared_xcd else 1)
             shared_count_period = fx.Int64(shared_tasks_per_queue + launch_grid_x)
 
             def _uniform_addr(addr):
@@ -677,15 +682,16 @@ def compile_mega_moe_stage1(
                     if shared_active:
                         if const_expr(shared_xcd):
                             if const_expr(small_xcd):
-                                # Four M tiles, twelve N panels: queues 0..3
+                                # Actual-batch M tiles, twelve N panels: queues 0..3
                                 # own two panels, queues 4..7 own one. Every
                                 # CTA exhausts each queue exactly once.
-                                shared_limit = (work_shard < fx.Int32(4)).select(fx.Int32(8), fx.Int32(4))
+                                shared_small_m = (fuse_mtpr + sort_block_m - 1) // sort_block_m
+                                shared_limit = (work_shard < fx.Int32(4)).select(fx.Int32(2 * shared_small_m), fx.Int32(shared_small_m))
                                 shared_period = fx.Int64(shared_limit) + fx.Int64(launch_grid_x)
                                 shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
                                     shared_count_addr + fx.Int64(work_shard) * fx.Int64(64), fx.Int64(1))) % shared_period)
-                                shared_m = shared_local % fx.Int32(4)
-                                shared_n = work_shard + (shared_local // fx.Int32(4)) * fx.Int32(8)
+                                shared_m = shared_local % fx.Int32(shared_small_m)
+                                shared_n = work_shard + (shared_local // fx.Int32(shared_small_m)) * fx.Int32(8)
                                 shared_claim = (shared_local < shared_limit).select(
                                     shared_m * fx.Int32(N_TILES) + shared_n, total_work + fx.Int32(1))
                             else:
@@ -792,7 +798,9 @@ def compile_mega_moe_stage1(
                     selected_out = _byte_tensor(_selected_addr(is_shared, 2, out))
                     selected_w = _make_buffer_from_addr(_selected_addr(is_shared, 0, w), fx.Int32, 4)
                     selected_sw = _make_buffer_from_addr(_selected_addr(is_shared, 1, scale_w), fx.Int32)
-                    selected_sx = _make_buffer_from_addr(_uniform_addr(is_shared.select(addr_in_sc, fx.Int64(fx.ptrtoint(fx.get_iter(scale_x))))), fx.Int32, 4)
+                    selected_sx = _make_buffer_from_addr(_uniform_addr(is_shared.select(addr_in_sc, fx.Int64(fx.ptrtoint(fx.get_iter(scale_x))))), fx.Int32, 4,
+                        num_records_bytes=(is_shared.select(fx.Int32(fuse_mtpr * (model_dim // 32)), fx.Int32(0x7fffffff))
+                            if fuse_mtpr < sort_block_m else None))
                     selected_trb = _make_buffer_from_addr(_selected_addr(is_shared, 4, sorted_token_ids), fx.Int32)
                     selected_expert = _make_buffer_from_addr(_selected_addr(is_shared, 5, expert_ids), fx.Int32)
                     selected_os = _make_buffer_from_addr(_selected_addr(is_shared, 3, out_scale), fx.Int8,

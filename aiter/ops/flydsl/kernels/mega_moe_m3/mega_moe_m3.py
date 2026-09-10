@@ -68,7 +68,7 @@ class MegaMoEM3:
             raise ValueError("swiglu_limit must be non-negative")
         self.dev = torch.device("cuda", rank)
         self.max_recv = self.world_size * self.mtpr
-        compact = self.mtpr > FIXED_SLOT_MAX_MTPR
+        compact = self.mtpr > FIXED_SLOT_MAX_MTPR or (shared_w13 is not None and self.mtpr in (16, 32, 64, 128))
         capacity_tile_m = 128 if compact else 32
         self._s1_fixed_slot = not compact
         self._s1_scale_dim = self.model_dim // 32
@@ -92,16 +92,16 @@ class MegaMoEM3:
         if (shared_w13 is None) != (shared_w13_scale is None):
             raise ValueError("shared_w13 and shared_w13_scale must be provided together")
         if shared_w13 is not None:
-            if self.mtpr not in (256, 8192):
-                raise ValueError("shared L13 supports full 256 or 8192 local tokens")
+            if self.mtpr not in (16, 32, 64, 128, 256, 8192):
+                raise ValueError("shared L13 supports full 16, 32, 64, 128, 256 or 8192 local tokens")
             if (self.model_dim, self.inter_dim, self.world_size, self.topk) != (6144, 3072, 8, 4):
                 raise ValueError("shared L13 requires EP8/top4/H6144/I3072")
             self._shared_w13 = shared_w13.contiguous().view(torch.uint8)
             self._shared_w13_scale = shared_w13_scale.contiguous().view(torch.uint8)
             self._shared_a2 = torch.empty((self.mtpr, self.inter_dim), device=self.dev, dtype=torch.float8_e4m3fn)
             self._shared_a2_scale = torch.empty(self.mtpr * (self.inter_dim // 32) + 8192, device=self.dev, dtype=torch.uint8)
-            shared_tile_m = 64 if self.mtpr == 256 else 128
-            self._shared_rows = torch.arange(self.mtpr // shared_tile_m, device=self.dev, dtype=torch.int32) * shared_tile_m
+            shared_tile_m = 64 if self.mtpr <= 256 else 128
+            self._shared_rows = torch.arange((self.mtpr + shared_tile_m - 1) // shared_tile_m, device=self.dev, dtype=torch.int32) * shared_tile_m
             self._shared_experts = torch.full_like(self._shared_rows, self.rank * self.epr)
             # Separate cache lines for the eight shared XCD queue heads.
             self._shared_task_count = torch.zeros(8 * 8, device=self.dev, dtype=torch.int64)
@@ -115,8 +115,8 @@ class MegaMoEM3:
         if shared_w2 is not None:
             if self._shared_l13 is None or not self._shared_xcd_schedule:
                 raise ValueError("shared L2 requires shared L13 and XCD scheduling")
-            if (self.model_dim, self.inter_dim) != (6144, 3072) or self.mtpr not in (256, 8192):
-                raise ValueError("shared L2 supports H6144/I3072 with 256 or 8192 local tokens")
+            if (self.model_dim, self.inter_dim) != (6144, 3072) or self.mtpr not in (16, 32, 64, 128, 256, 8192):
+                raise ValueError("shared L2 supports H6144/I3072 with 16, 32, 64, 128, 256 or 8192 local tokens")
             self._shared_w2 = shared_w2.contiguous().view(torch.uint8)
             self._shared_w2_scale = shared_w2_scale.contiguous().view(torch.uint8)
             if self._shared_w2.numel() != self.model_dim * self.inter_dim:
@@ -269,10 +269,16 @@ class MegaMoEM3:
             model_dim=self.model_dim,
             inter_dim=self.inter_dim,
         )
+        # Shared small batches reuse the measured T256 geometry and preplan4.
+        # This is a validated inherited configuration, not a per-size tuning claim.
+        small_shared = (self._shared_l13 is not None
+            and (self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk)
+            == (8, 16, 6144, 3072, 4)
+            and tokens in (16, 32, 64, 128) and self.mtpr == tokens)
         # Measured EP8 M3 T256 configuration: P1, P2a, P2b and early B prefetch.
         # Retain the launch barrier; removing it with P1 showed no extra gain.
-        if ((self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk,
-             tokens, self.mtpr) == (8, 16, 6144, 3072, 4, 256, 256)
+        if (((self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk,
+              tokens, self.mtpr) == (8, 16, 6144, 3072, 4, 256, 256) or small_shared)
                 and not self.local_reduce and not self.local_reduce_xcd_local
                 and config.p2p_quant == "none"
                 and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())):
@@ -284,6 +290,7 @@ class MegaMoEM3:
                     xcd_schedule=True, band_m=4, padding_uniform_srcmap=True,
                     count_uniform_matrix=True, row_base_prefetch=True,
                     prefetch_b_before_a=True,
+                    preplan_waves=4 if small_shared else 0,
                     skip_launch_barrier=False),
                 stage2=Stage2Config(
                     block_m=32, block_n=128, block_k=256, persist=True,
@@ -640,7 +647,7 @@ class MegaMoEM3:
             shared_l2=self._shared_l2.data_ptr() if self._shared_l2 is not None else 0, **invariants)
         # fmt: on
         self._g2_active_block_m = stage2.block_m
-        prefetch_local = self._shared_l2 is not None and not self.local_reduce and run_tokens == 256
+        prefetch_local = self._shared_l2 is not None and not self.local_reduce and run_tokens in (16, 32, 64, 128, 256)
         return comb_op.combine_no_stage1(
             self._shared_out if self._shared_l2 is not None else self._g2_combine_placeholder,
             None, None, cur_tok=run_tokens, enable_weights=False,

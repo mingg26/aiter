@@ -475,9 +475,12 @@ def make_combine_kernel(
     if prefetch_local_epr:
         if not (shared_input and not local_reduce_epr and npes == 8
                 and experts_per_token == 4 and prefetch_local_epr == 16
-                and hidden_dim == 6144 and max_tok_per_rank == 256):
-            raise ValueError("local prefetch requires EP8/top4/H6144/T256 shared BF16 combine")
+                and hidden_dim == 6144 and max_tok_per_rank in (16, 32, 64, 128, 256)):
+            raise ValueError("local prefetch requires EP8/top4/H6144/T16/32/64/128/256 shared BF16 combine")
         prefetch_warps_per_tok = block_num * warp_num_per_block // max_tok_per_rank
+        if max_tok_per_rank < 64:
+            # Retain the resident CTA grid; excess token warps use bounded no-op accesses.
+            prefetch_warps_per_tok = min(16, prefetch_warps_per_tok)
         if (block_num * warp_num_per_block % max_tok_per_rank
                 or prefetch_warps_per_tok < 2
                 or (hidden_dim // 2) % (64 * prefetch_warps_per_tok)):
@@ -952,7 +955,10 @@ def make_combine_kernel(
             prefetch_tok = global_warp_id // prefetch_warps_per_tok
             prefetch_part = global_warp_id % prefetch_warps_per_tok
             prefetch_col = prefetch_part * (prefetch_words * 64) + lane
-            prefetch_route = create_buffer_resource_from_addr(addr_stage2_topk_ids)
+            prefetch_route = create_buffer_resource_from_addr(addr_stage2_topk_ids,
+                num_records_bytes=max_tok_per_rank * experts_per_token * 4 if max_tok_per_rank < 64 else None)
+            if const_expr(max_tok_per_rank < 64):
+                prefetch_active = prefetch_tok < fx.Int32(max_tok_per_rank)
             prefetch_shared_rsrc = create_buffer_resource_from_addr(addr_inp_tok,
                 num_records_bytes=max_tok_per_rank * hidden_dim * 2)
             local_flags = []
@@ -962,14 +968,16 @@ def make_combine_kernel(
                 eid = buffer_load(prefetch_route, prefetch_tok * experts_per_token + k_slot,
                     vec_width=1, dtype=T.i32)
                 eid = fx.Int32(readfirstlane(T.i32, fx.Int32(eid).ir_value()))
-                is_local = (eid >= 0) & (eid // prefetch_local_epr == rank)
+                is_local = (prefetch_active & (eid >= 0) & (eid // prefetch_local_epr == rank)
+                    if max_tok_per_rank < 64 else (eid >= 0) & (eid // prefetch_local_epr == rank))
                 local_flags.append(is_local)
                 partial_addr = _wave_uniform_i64(addr_shmem_tok
                     + fx.Int64(prefetch_tok * experts_per_token + k_slot) * nbytes)
                 local_rsrc = create_buffer_resource_from_addr(partial_addr,
                     num_records_bytes=is_local.select(fx.Int32(nbytes), fx.Int32(0)))
                 remote_resources.append(create_buffer_resource_from_addr(partial_addr,
-                    num_records_bytes=is_local.select(fx.Int32(0), fx.Int32(nbytes))))
+                    num_records_bytes=((prefetch_active & (not is_local)).select(fx.Int32(nbytes), fx.Int32(0))
+                        if max_tok_per_rank < 64 else is_local.select(fx.Int32(0), fx.Int32(nbytes)))))
                 local_values.append([buffer_load(local_rsrc, prefetch_col + j * 64,
                     vec_width=1, dtype=T.i32, cache_modifier=_SLC_CACHE)
                     for j in range_constexpr(prefetch_words)])
@@ -992,7 +1000,8 @@ def make_combine_kernel(
         # Stage 3: local read + WarpAccum. hidden-dim splits into warps_per_tok
         # partitions; each warp reduces k partials in f32 -> shmem_comb_out.
         SLC_CACHE = _SLC_CACHE
-        rsrc_out = create_buffer_resource_from_addr(addr_out_shmem_tok)
+        rsrc_out = create_buffer_resource_from_addr(addr_out_shmem_tok,
+            num_records_bytes=max_tok_per_rank * hidden_dim * 2 if prefetch_local_epr and max_tok_per_rank < 64 else None)
         if const_expr(shared_input):
             rsrc_shared = create_buffer_resource_from_addr(addr_inp_tok,
                 num_records_bytes=max_tok_per_rank * hidden_dim * 2)

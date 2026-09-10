@@ -350,13 +350,13 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         raise ValueError(f"unsupported shared_schedule={shared_schedule!r}")
     if shared_l2:
         assert (model_dim, inter_dim) == (6144, 3072)
-        assert (max_tok, BM, BN, BK, SBM) in ((256, 32, 128, 256, 64), (8192, 64, 128, 128, 128))
-        assert persist and xcd_schedule and band_m > 1 and max_tok % (BM * band_m) == 0
+        assert (max_tok, BM, BN, BK, SBM) in ((16, 32, 128, 256, 64), (32, 32, 128, 256, 64), (64, 32, 128, 256, 64), (128, 32, 128, 256, 64), (256, 32, 128, 256, 64), (8192, 64, 128, 128, 128))
+        assert persist and xcd_schedule and band_m > 1 and max_tok % 16 == 0
         assert p2p_quant_type == "none" and not has_pad
     shared_early2 = shared_l2 and shared_schedule == "early2"
     if shared_early2:
         geometry = (npes, max_tok, BM, BN, BK, SBM, band_m, cu_num, queue_grid_mult)
-        if not ((not local_reduce and geometry == (8, 256, 32, 128, 256, 64, 8, 128, 5))
+        if not ((not local_reduce and max_tok in (16, 32, 64, 128, 256) and geometry == (8, max_tok, 32, 128, 256, 64, 8, 128, 5))
                 or (local_reduce_xcd_local and geometry == (8, 8192, 64, 128, 128, 128, 16, 240, 5))):
             raise ValueError("early2 requires a validated EP8 shared L2 geometry")
     log2_max_tok = max_tok.bit_length() - 1
@@ -458,17 +458,20 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
             selected_a, selected_as = arg_aq, arg_ascale
             selected_b, selected_bs, selected_e = arg_bq, arg_bscale, arg_eids
             selected_m_blocks = i32_max_m_blocks
+            selected_a_tile_bytes = None
             if const_expr(shared_l2):
                 def select_addr(a, b):
                     value = is_shared.select(a, b)
                     return fx.Int64(rocdl.readfirstlane(T.i64, value.ir_value()))
                 selected_a, selected_as = select_addr(shared_a, arg_aq), select_addr(shared_as, arg_ascale)
+                if const_expr(max_tok < BM):
+                    selected_a_tile_bytes = is_shared.select(fx.Int64(max_tok * inter_dim), fx.Int64(BM * inter_dim))
                 selected_b, selected_bs = select_addr(shared_b, arg_bq), select_addr(shared_bs, arg_bscale)
                 selected_e = select_addr(shared_e, arg_eids)
-                selected_m_blocks = is_shared.select(fx.Int32(max_tok // BM), i32_max_m_blocks)
+                selected_m_blocks = is_shared.select(fx.Int32(((max_tok + BM - 1) // BM)), i32_max_m_blocks)
                 for slot in range_constexpr(kStages):
                     issue_a_load_lds_dt(selected_a, lds_base_i32, slot, slot, m_block_idx * BM, wave, lane,
-                        is_f8, KH_TILE_A, k_bytes, BM=BM)
+                        is_f8, KH_TILE_A, k_bytes, BM=BM, a_tile_bytes=selected_a_tile_bytes)
                 rocdl.sched_barrier(0)
 
             def prepare_routed():
@@ -519,7 +522,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
                 selected_bs, selected_e, selected_a, selected_m_blocks, unit_bx, lane, wave, i32_inter, i32_hidden,
                 i32_kpad, i32_npad, BM=BM, BN=BN, BK=BK, use_nt=use_nt, INTER_MAX=INTER_MAX, aStages=aStages,
                 has_pad=has_pad, SBM=SBM, g2_bhoist=g2_bhoist, g2_ascale_pf=g2_ascale_pf,
-                expert_offset=_expert_offset)
+                expert_offset=_expert_offset, a_tile_bytes=selected_a_tile_bytes)
 
             def routed_epilog():
                 p2p_scatter_epilog(lds_base_i32, accm_vecs, n_block_idx, wave, lane, N_OUT=N_OUT,
@@ -559,7 +562,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
             if const_expr(shared_early2):
                 shared_first = ((bx_i32 // fx.Int32(8)) % fx.Int32(8)) < fx.Int32(2)
             if const_expr(shared_l2):
-                shared_queue_size = max_tok // BM * (model_dim // BN) // 8
+                shared_queue_size = ((((max_tok + BM - 1) // BM) + band_m - 1) // band_m) * band_m * (model_dim // BN) // 8
                 shared_period = fx.Int64(shared_queue_size + cu_num * queue_grid_mult)
             # Reuse compute LDS only between tiles, with WG barriers before
             # overwriting previous epilogue data and before reusing claim storage.
@@ -601,7 +604,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
                 if const_expr(shared_l2):
                     ticket = fx.Int32(rocdl.readfirstlane(T.i32, fx.Int32(ticket).ir_value()))
                     current_queue_size = shared_active.select(fx.Int32(shared_queue_size), queue_size)
-                    current_m_blocks = shared_active.select(fx.Int32(max_tok // BM), total_m_blocks)
+                    current_m_blocks = shared_active.select(fx.Int32(((max_tok + BM - 1) // BM)), total_m_blocks)
                 if ticket < current_queue_size:
                     band = ticket // (fx.Int32(band_m) * n_local)
                     rem = ticket % (fx.Int32(band_m) * n_local)

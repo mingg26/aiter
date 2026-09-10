@@ -110,6 +110,7 @@ def issue_a_load_lds_dt(
     KH_TILE_A,
     K_BYTES,
     BM=32,
+    a_tile_bytes=None,
 ):
     """Load one A tile through a tile-local descriptor so allocations may span the 4 GiB buffer ABI."""
     lanes_per_row = KH_TILE_A // 16  # 16 for FP8 A
@@ -136,7 +137,7 @@ def issue_a_load_lds_dt(
         align=16,
         elem_bytes=4,
         fold=False,
-        num_records_bytes=fx.Int64(BM) * fx.Int64(K_BYTES),
+        num_records_bytes=fx.Int64(BM) * fx.Int64(K_BYTES) if a_tile_bytes is None else a_tile_bytes,
     )
     for g in range_constexpr(n_row_groups):
         lds_row = gather_base_row + g * rows_per_call
@@ -183,6 +184,7 @@ def gemm2_compute_v2(
     g2_bhoist=True,
     g2_ascale_pf=True,
     expert_offset=0,
+    a_tile_bytes=None,
 ):
     """Run the GEMM2 K-loop and return accumulators for the selected epilogue."""
     # SBM is the sort padding unit; BM is the compute tile and must divide SBM.
@@ -267,6 +269,7 @@ def gemm2_compute_v2(
             KH_TILE_A,
             K_BYTES,
             BM=BM,
+            a_tile_bytes=a_tile_bytes,
         )
 
     def issue_a_ds_read(slot):

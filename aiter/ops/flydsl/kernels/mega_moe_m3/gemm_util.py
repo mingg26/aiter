@@ -88,7 +88,9 @@ class ATileLoader:
         swizzle=False,
         x_tensor=None,
         async_copy=False,
+        tile_bytes=None,
     ):
+        self._tile_bytes = tile_bytes if tile_bytes is not None else sort_block_m * row_bytes
         self._sort_block_m = sort_block_m
         self._k_step_bytes = k_step_bytes
         self._total_threads = total_threads
@@ -124,13 +126,13 @@ class ATileLoader:
             fx.Int32,
             4,
             max_size=False,
-            num_records_bytes=self._sort_block_m * self._row_bytes,
+            num_records_bytes=self._tile_bytes,
         )
         if const_expr(self._async_copy):
             tile_buffer = fx.rocdl.make_buffer_tensor(
                 tile_view,
                 max_size=False,
-                num_records_bytes=self._sort_block_m * self._row_bytes,
+                num_records_bytes=self._tile_bytes,
             )
             self._tile_dma = fx.logical_divide(
                 tile_buffer,
