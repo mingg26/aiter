@@ -93,7 +93,7 @@ def compile_mega_moe_stage1(
     fp8_b_waitcnt: bool = False,
     scalar_tile_row_base: bool = False,
     prefetch_a_operand: bool = False,
-    xcd_schedule: bool = False, schedule_audit: bool = False, reset_stage2_queue: bool = False,
+    xcd_schedule: bool = False, schedule_audit: bool = False, reset_stage2_queue: bool = False, shared_l13: bool = False, shared_xcd: bool = False,
 ):
     arch = str(get_rocm_arch() or "")
     if not arch.startswith("gfx95"):
@@ -127,6 +127,12 @@ def compile_mega_moe_stage1(
     # The tile-ready schedule uses GEMM's band decoder. Small XCD bands
     # instead map tickets to canonical m*N+n indices and retain expert waits.
     assert BAND_M == 1 or payload_tile_ready or xcd_schedule, "finite small-XCD bands retain per-expert waits"
+    assert not shared_xcd or shared_l13
+    if shared_l13:
+        # Initial experiment: a full local shared expert with the routed geometry.
+        assert preplanned and xcd_schedule and payload_tile_ready
+        assert use_tile_resource and prefetch_b_before_a and not schedule_audit
+        assert (sort_block_m, tile_n, tile_k, num_waves, band_m) == (128, 256, 256, 8, 4)
     planner_blocks = 1
     # Keep the fused grid on an exact CU multiple instead of appending control/producer CTAs as a tail.
     grid_x = num_cu * grid_mult - planner_blocks - dispatch_blocks
@@ -254,6 +260,10 @@ def compile_mega_moe_stage1(
         + ("_qplan1" if preplanned else "")
         + "_scratchfix1"
         + ("_s2qr1" if reset_stage2_queue else "")
+        + ("_sharedl13" if shared_l13 else "")
+        + ("_shxcd1" if shared_xcd else "")
+        + ("_shu1" if shared_l13 else "")
+        + ("_shna2" if shared_l13 else "")
     )
 
     @flyc.kernel(name=kernel_name, known_block_size=[TOTAL_THREADS, 1, 1])
@@ -262,7 +272,7 @@ def compile_mega_moe_stage1(
         sorted_token_ids: fx.Tensor, expert_ids: fx.Tensor, num_valid_ids: fx.Tensor, out_scale: fx.Tensor,
         tokens: fx.Int32, addr_disp: fx.Int64, i32_cur_tok: fx.Int32, addr_in_tok: fx.Int64,
         addr_in_idx: fx.Int64, addr_in_wts: fx.Int64, addr_in_sc: fx.Int64, addr_parity: fx.Int64,
-        addr_expected: fx.Int64, addr_stage2_work_head: fx.Int64,
+        addr_expected: fx.Int64, addr_stage2_work_head: fx.Int64, addr_shared_l13: fx.Int64,
     ):
         tid = fx.thread_idx.x
         lds = fx.SharedAllocator().allocate(SplitSharedStorage if split_a_lds else SharedStorage).peek()
@@ -485,27 +495,65 @@ def compile_mega_moe_stage1(
             out_rsrc = _make_buffer(out, fx.Int16, max_size=False, num_records_bytes=out_nbytes)
         os_rsrc = _make_buffer(out_scale, fx.Int8, max_size=False, num_records_bytes=os_nbytes)
 
-        expert_of_flat, _m_tile_of_flat, _do_scheduled_tile = build_fused_gemm1(
-            x_tensor=x, w_rsrc=w_rsrc,
-            sw_rsrc=sw_rsrc, sx_rsrc=sx_rsrc, out_rsrc=out_rsrc, os_rsrc=os_rsrc,
-            trb_rsrc=trb_rsrc, expert_rsrc=expert_rsrc, out_tensor=out,
-            a_buf=a_buf, a_scale_lds=a_scale_lds, c_tile=c_tile,
-            model_dim=model_dim, inter_dim=inter_dim, sort_block_m=sort_block_m,
-            tile_n=tile_n, num_waves=NUM_WAVES, n_per_wave=n_per_wave, wave_id=wave_id,
-            m_repeat=M_REPEAT, num_acc_n=NUM_ACC_N, a_k_step_bytes=A_K_STEP_BYTES,
-            total_threads=TOTAL_THREADS, k_iters=K_ITERS, a_lds_i32=a_lds_i32,
-            n_tiles=N_TILES, expert_offset=fz_rank * fz_epr, b_cache_modifier=b_cache_modifier,
-            swizzle_a=swizzle_a, pipe_weights=pipe_weights, mfma_amajor=mfma_amajor,
-            async_a_copy=async_a_copy, use_tile_resource=use_tile_resource,
-            band_m=1 if small_xcd else BAND_M,
-            packed_a_scale=packed_a_scale,
-            unroll_a_pingpong=unroll_a_pingpong,
-            split_a_lds=split_a_lds,
-            fp8_b_waitcnt=fp8_b_waitcnt,
-            prefetch_a_operand=prefetch_a_operand,
-            scalar_tile_row_base=scalar_tile_row_base,
-            swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
-        )
+        def _build_runner(x_tensor, w_buf, sw_buf, sx_buf, out_buf, os_buf, trb_buf, expert_buf, out_tensor, shared_flag=None):
+            return build_fused_gemm1(
+                x_tensor=x_tensor, w_rsrc=w_buf,
+                sw_rsrc=sw_buf, sx_rsrc=sx_buf, out_rsrc=out_buf, os_rsrc=os_buf,
+                trb_rsrc=trb_buf, expert_rsrc=expert_buf, out_tensor=out_tensor,
+                a_buf=a_buf, a_scale_lds=a_scale_lds, c_tile=c_tile,
+                model_dim=model_dim, inter_dim=inter_dim, sort_block_m=sort_block_m,
+                tile_n=tile_n, num_waves=NUM_WAVES, n_per_wave=n_per_wave, wave_id=wave_id,
+                m_repeat=M_REPEAT, num_acc_n=NUM_ACC_N, a_k_step_bytes=A_K_STEP_BYTES,
+                total_threads=TOTAL_THREADS, k_iters=K_ITERS, a_lds_i32=a_lds_i32,
+                n_tiles=N_TILES, expert_offset=fz_rank * fz_epr, b_cache_modifier=b_cache_modifier,
+                swizzle_a=swizzle_a, pipe_weights=pipe_weights, mfma_amajor=mfma_amajor,
+                async_a_copy=async_a_copy, use_tile_resource=use_tile_resource,
+                band_m=1 if small_xcd else BAND_M,
+                packed_a_scale=packed_a_scale,
+                unroll_a_pingpong=unroll_a_pingpong,
+                split_a_lds=split_a_lds,
+                fp8_b_waitcnt=fp8_b_waitcnt,
+                prefetch_a_operand=prefetch_a_operand,
+                scalar_tile_row_base=scalar_tile_row_base, bf16_intermediate=shared_flag,
+                swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
+            )
+
+        if const_expr(not shared_l13):
+            expert_of_flat, _m_tile_of_flat, _do_scheduled_tile = _build_runner(
+                x, w_rsrc, sw_rsrc, sx_rsrc, out_rsrc, os_rsrc, trb_rsrc, expert_rsrc, out)
+        else:
+            shared_m_tiles = i32_cur_tok // fx.Int32(sort_block_m)
+            shared_work = shared_m_tiles * fx.Int32(N_TILES)
+
+            def _m_tile_of_flat(flat):
+                return (flat // fx.Int32(BAND_M * N_TILES)) * fx.Int32(BAND_M) + flat % fx.Int32(BAND_M)
+
+            def expert_of_flat(flat):
+                return _buffer_load(expert_rsrc, _m_tile_of_flat(flat), fx.Int32) - fx.Int32(fz_rank * fz_epr)
+
+            shared_table = _make_buffer_from_addr(addr_shared_l13, fx.Int64)
+            shared_count_addr = _buffer_load(shared_table, fx.Int32(6), fx.Int64)
+            # Every CTA exhausts every shared queue once before routed work.
+            # Each head therefore advances by its valid tasks + launch_grid_x
+            # per invocation, even when the physical XCD placement is uneven.
+            # This gives graph-safe epochs without a reset kernel or barrier.
+            shared_tasks_per_queue = fuse_mtpr // sort_block_m * N_TILES // (8 if shared_xcd else 1)
+            shared_count_period = fx.Int64(shared_tasks_per_queue + launch_grid_x)
+
+            def _uniform_addr(addr):
+                # The pointer table and selected task are identical across a
+                # wave. Preserve that fact when building buffer resources so
+                # LLVM does not emit a descriptor waterfall for every K load.
+                return fx.Int64(fx.rocdl.readfirstlane(T.i64, addr.ir_value()))
+
+            def _selected_addr(flag, slot, routed_tensor):
+                return _uniform_addr(flag.select(
+                    _buffer_load(shared_table, fx.Int32(slot), fx.Int64),
+                    fx.Int64(fx.ptrtoint(fx.get_iter(routed_tensor)))))
+
+            def _byte_tensor(addr):
+                ptr = fx.inttoptr(fx.PointerType.get(fx.Float8E4M3FN.ir_type, fx.AddressSpace.Global, 16), addr)
+                return fx.Tensor(fx.make_view(ptr, fx.make_layout(1, 1)))
 
         if const_expr(not preplanned):
             if tid == fx.Int32(0):
@@ -518,6 +566,8 @@ def compile_mega_moe_stage1(
 
         num_valid = _buffer_load(nv_rsrc, fx.Int32(0), fx.Int32)
         num_m_tiles = ceildiv(num_valid, fx.Int32(sort_block_m))
+        if const_expr(shared_l13):
+            num_m_tiles = num_m_tiles + shared_m_tiles
         if const_expr(BAND_M == 1 or small_xcd):
             total_work = num_m_tiles * fx.Int32(N_TILES)
         else:
@@ -528,7 +578,7 @@ def compile_mega_moe_stage1(
                 ceildiv(num_m_tiles, fx.Int32(BAND_M)) * fx.Int32(BAND_M * N_TILES)
             )
 
-        def _wait_tile_payload(flat):
+        def _wait_routed_payload(flat):
             if const_expr(payload_tile_ready):
                 tile_index = _m_tile_of_flat(flat)
                 expected_tiles = _buffer_load(
@@ -544,6 +594,13 @@ def compile_mega_moe_stage1(
                     addr_payload_ready + fx.Int64(pe_index) * fx.Int64(4), payload_expected
                 )
 
+        def _wait_tile_payload(flat):
+            if const_expr(shared_l13):
+                if flat >= shared_work:
+                    _wait_routed_payload(flat - shared_work)
+            else:
+                _wait_routed_payload(flat)
+
         # Control CTAs join the work pool after dispatch.
         def _wait_payload_after_b(work):
             if tid == fx.Int32(0):
@@ -552,6 +609,7 @@ def compile_mega_moe_stage1(
             comm_ops.fence_system_acquire()
 
         consumer_active = fx.Int32(1) == fx.Int32(1)
+        shared_active = fx.Boolean(True)
         work_scratch = fx.recast_iter(fx.Int32, a_buf.ptr)
         work_scratch_view = fx.make_view(
             work_scratch, fx.make_layout(2 if joint_work_flags else 1, 1)
@@ -567,37 +625,67 @@ def compile_mega_moe_stage1(
             home_queue = physical_xcd & fx.Int32(7)
         queue_attempt = fx.Int32(0)
         flags = fx.Int32(0)
+        def _decode_xcd(local_work, work_shard):
+            local_band = local_work // fx.Int32(BAND_M * (N_TILES // 8))
+            local_rem = local_work % fx.Int32(BAND_M * (N_TILES // 8))
+            n_tile = (local_rem // fx.Int32(BAND_M)) * fx.Int32(8) + work_shard
+            work = local_band * fx.Int32(BAND_M * N_TILES) + n_tile * fx.Int32(BAND_M) + local_rem % fx.Int32(BAND_M)
+            return work
+
+        def _claim_routed(work_shard):
+            local_work = fx.Int32(
+                comm_ops.atomic_add_agent(
+                    a_work_head + fx.Int64(work_shard) * fx.Int64(64), fx.Int32(1)
+                )
+            )
+            if const_expr(small_xcd):
+                # Keep home=(expert*12+n)%8 unchanged, but alternate
+                # the two local N slots after each finite M band.
+                # Return canonical m*N+n indices to the unchanged GEMM.
+                m_index = (local_work // fx.Int32(2 * BAND_M)) * fx.Int32(BAND_M) + local_work % fx.Int32(BAND_M)
+                safe_m = (m_index < num_m_tiles).select(m_index, fx.Int32(0))
+                e_index = expert_of_flat(safe_m * fx.Int32(N_TILES))
+                n_first = (work_shard + e_index * fx.Int32(4)) & fx.Int32(7)
+                n_index = n_first + ((local_work // fx.Int32(BAND_M)) % fx.Int32(2)) * fx.Int32(8)
+                mapped_work = m_index * fx.Int32(N_TILES) + n_index
+                valid_or_skip = ((n_index < fx.Int32(N_TILES)) & (m_index < num_m_tiles)).select(mapped_work, total_work)
+                ticket_count = ceildiv(num_m_tiles, fx.Int32(BAND_M)) * fx.Int32(2 * BAND_M)
+                work = (local_work < ticket_count).select(valid_or_skip, total_work + fx.Int32(1))
+            elif const_expr(xcd_schedule):
+                # Each XCD owns three N panels in the H6144/I3072 case.
+                # Within a ready M band, adjacent claims reuse the B panel.
+                work = _decode_xcd(local_work, work_shard)
+            else:
+                work = work_shard + local_work * fx.Int32(WORK_SHARDS)
+            return work
+
         while consumer_active:
             if const_expr(xcd_schedule):
                 work_shard = (home_queue + queue_attempt) & fx.Int32(7)
             if tid == fx.Int32(0):
-                local_work = fx.Int32(
-                    comm_ops.atomic_add_agent(
-                        a_work_head + fx.Int64(work_shard) * fx.Int64(64), fx.Int32(1)
-                    )
-                )
-                if const_expr(small_xcd):
-                    # Keep home=(expert*12+n)%8 unchanged, but alternate
-                    # the two local N slots after each finite M band.
-                    # Return canonical m*N+n indices to the unchanged GEMM.
-                    m_index = (local_work // fx.Int32(2 * BAND_M)) * fx.Int32(BAND_M) + local_work % fx.Int32(BAND_M)
-                    safe_m = (m_index < num_m_tiles).select(m_index, fx.Int32(0))
-                    e_index = expert_of_flat(safe_m * fx.Int32(N_TILES))
-                    n_first = (work_shard + e_index * fx.Int32(4)) & fx.Int32(7)
-                    n_index = n_first + ((local_work // fx.Int32(BAND_M)) % fx.Int32(2)) * fx.Int32(8)
-                    mapped_work = m_index * fx.Int32(N_TILES) + n_index
-                    valid_or_skip = ((n_index < fx.Int32(N_TILES)) & (m_index < num_m_tiles)).select(mapped_work, total_work)
-                    ticket_count = ceildiv(num_m_tiles, fx.Int32(BAND_M)) * fx.Int32(2 * BAND_M)
-                    work = (local_work < ticket_count).select(valid_or_skip, total_work + fx.Int32(1))
-                elif const_expr(xcd_schedule):
-                    # Each XCD owns three N panels in the H6144/I3072 case.
-                    # Within a ready M band, adjacent claims reuse the B panel.
-                    local_band = local_work // fx.Int32(BAND_M * (N_TILES // 8))
-                    local_rem = local_work % fx.Int32(BAND_M * (N_TILES // 8))
-                    n_tile = (local_rem // fx.Int32(BAND_M)) * fx.Int32(8) + work_shard
-                    work = local_band * fx.Int32(BAND_M * N_TILES) + n_tile * fx.Int32(BAND_M) + local_rem % fx.Int32(BAND_M)
+                work = fx.Int32(0)
+                if const_expr(shared_l13):
+                    shared_claim = shared_work
+                    if shared_active:
+                        if const_expr(shared_xcd):
+                            shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
+                                shared_count_addr + fx.Int64(work_shard) * fx.Int64(64), fx.Int64(1))) % shared_count_period)
+                            shared_claim = (shared_local < fx.Int32(shared_tasks_per_queue)).select(
+                                _decode_xcd(shared_local, work_shard), total_work + fx.Int32(1))
+                        else:
+                            shared_claim = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(shared_count_addr, fx.Int64(1))) % shared_count_period)
+                    if const_expr(shared_xcd):
+                        if shared_active:
+                            work = shared_claim
+                        else:
+                            work = _claim_routed(work_shard) + shared_work
+                    else:
+                        if shared_claim < shared_work:
+                            work = shared_claim
+                        else:
+                            work = _claim_routed(work_shard) + shared_work
                 else:
-                    work = work_shard + local_work * fx.Int32(WORK_SHARDS)
+                    work = _claim_routed(work_shard)
                 if const_expr(joint_work_flags):
                     # Publish the ticket and its skip/continue flags together.
                     # Keep both as i32 so no ticket bits are lost by packing.
@@ -657,6 +745,7 @@ def compile_mega_moe_stage1(
                 # The word aliases GEMM A LDS and the next iteration's ticket.
                 # Finish every wave's flags load before either reuses that storage.
                 fx.barrier()
+            shared_active = shared_active if const_expr(shared_xcd) else (work < shared_work if const_expr(shared_l13) else fx.Boolean(False))
             if (flags & fx.Int32(2)) != fx.Int32(0):
                 if const_expr(not direct_fixed_slot and not prefetch_b_before_a):
                     comm_ops.fence_system_acquire()
@@ -670,15 +759,52 @@ def compile_mega_moe_stage1(
                         audit_rsrc = _make_buffer_from_addr(audit_addr, fx.Int32)
                         _buffer_store(audit_rsrc, audit_index + fx.Int32(1), physical_xcd + fx.Int32(1), fx.Int32)
                         _buffer_store(audit_rsrc, audit_index + fx.Int32(2), work_shard + fx.Int32(1), fx.Int32)
-                if const_expr(prefetch_b_before_a):
+                if const_expr(shared_l13):
+                    # Uniform descriptor selection feeds one GEMM/MFMA body for
+                    # both task kinds. Shared and routed have separate queues
+                    # but share the XCD-local band decoder.
+                    # The scheduler broadcasts one task to the entire CTA via
+                    # LDS, which the compiler otherwise treats as lane-varying.
+                    uniform_work = fx.Int32(fx.rocdl.readfirstlane(T.i32, work.ir_value()))
+                    is_shared = uniform_work < shared_work
+                    selected_x = _byte_tensor(_uniform_addr(is_shared.select(addr_in_tok, fx.Int64(fx.ptrtoint(fx.get_iter(x))))))
+                    selected_out = _byte_tensor(_selected_addr(is_shared, 2, out))
+                    selected_w = _make_buffer_from_addr(_selected_addr(is_shared, 0, w), fx.Int32, 4)
+                    selected_sw = _make_buffer_from_addr(_selected_addr(is_shared, 1, scale_w), fx.Int32)
+                    selected_sx = _make_buffer_from_addr(_uniform_addr(is_shared.select(addr_in_sc, fx.Int64(fx.ptrtoint(fx.get_iter(scale_x))))), fx.Int32, 4)
+                    selected_trb = _make_buffer_from_addr(_selected_addr(is_shared, 4, sorted_token_ids), fx.Int32)
+                    selected_expert = _make_buffer_from_addr(_selected_addr(is_shared, 5, expert_ids), fx.Int32)
+                    selected_os = _make_buffer_from_addr(_selected_addr(is_shared, 3, out_scale), fx.Int8,
+                        num_records_bytes=is_shared.select(i32_cur_tok * fx.Int32(scale_cols) + fx.Int32(8192), os_nbytes))
+                    _, _, run_selected = _build_runner(selected_x, selected_w, selected_sw, selected_sx,
+                        None, selected_os, selected_trb, selected_expert, selected_out, is_shared)
+                    tile_work = is_shared.select(uniform_work, uniform_work - shared_work)
+
+                    def _wait_selected(ignored):
+                        if tid == fx.Int32(0):
+                            _wait_tile_payload(work)
+                        fx.barrier()
+                        # Shared A/scales come from the preceding quant kernel
+                        # on this stream, with no concurrent payload writers.
+                        # Routed tiles still acquire the remote producer writes.
+                        if uniform_work >= shared_work:
+                            comm_ops.fence_system_acquire()
+
+                    run_selected(tile_work, wait_payload=_wait_selected)
+                elif const_expr(prefetch_b_before_a):
                     _do_scheduled_tile(work, wait_payload=_wait_payload_after_b)
                 else:
                     _do_scheduled_tile(work)
             if const_expr(xcd_schedule):
-                queue_attempt = queue_attempt + ((flags & fx.Int32(1)) == fx.Int32(0)).select(fx.Int32(1), fx.Int32(0))
+                next_queue_attempt = queue_attempt + ((flags & fx.Int32(1)) == fx.Int32(0)).select(fx.Int32(1), fx.Int32(0))
+                # Finish visiting all shared queues before returning to our home
+                # routed queue. No wait for other CTAs to finish shared GEMMs.
+                queue_attempt = (shared_active & (next_queue_attempt == fx.Int32(8))).select(
+                    fx.Int32(0), next_queue_attempt) if const_expr(shared_xcd) else next_queue_attempt
                 consumer_active = queue_attempt < fx.Int32(8)
             else:
                 consumer_active = (flags & fx.Int32(1)) != fx.Int32(0)
+            shared_active = (shared_active & (next_queue_attempt < fx.Int32(8))) if const_expr(shared_xcd) else shared_active
 
     @flyc.jit
     def launch(
@@ -686,12 +812,12 @@ def compile_mega_moe_stage1(
         sorted_token_ids: fx.Tensor, expert_ids: fx.Tensor, num_valid_ids: fx.Tensor, out_scale: fx.Tensor,
         tokens: fx.Int32, addr_disp: fx.Int64, i32_cur_tok: fx.Int32, addr_in_tok: fx.Int64,
         addr_in_idx: fx.Int64, addr_in_wts: fx.Int64, addr_in_sc: fx.Int64, addr_parity: fx.Int64,
-        addr_expected: fx.Int64, addr_stage2_work_head: fx.Int64, stream: fx.Stream,
+        addr_expected: fx.Int64, addr_stage2_work_head: fx.Int64, addr_shared_l13: fx.Int64, stream: fx.Stream,
     ):
         kernel(
             out, x, w, scale_x, scale_w, sorted_token_ids, expert_ids, num_valid_ids, out_scale, tokens,
             addr_disp, i32_cur_tok, addr_in_tok, addr_in_idx, addr_in_wts, addr_in_sc, addr_parity, addr_expected,
-            addr_stage2_work_head,
+            addr_stage2_work_head, addr_shared_l13,
             value_attrs={
                 "rocdl.waves_per_eu": waves_per_eu_hint,
                 "rocdl.flat_work_group_size": f"{TOTAL_THREADS},{TOTAL_THREADS}",
@@ -717,7 +843,7 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
     joint_work_flags=False,
     preplanned=False,
     payload_chunk_rows=0, payload_tile_ready=False, payload_tile_publish_early=False, band_m=1, swiglu_limit=0.0,
-    swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, xcd_schedule=False, schedule_audit=False, stage2_work_head=0):
+    swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, xcd_schedule=False, schedule_audit=False, stage2_work_head=0, shared_l13=0, shared_xcd=False):
     launch = compile_mega_moe_stage1(
         model_dim=model_dim, inter_dim=inter_dim, rank=rank, experts_per_rank=experts_per_rank,
         fuse_npes=fuse_npes, fuse_topk=fuse_topk, fuse_cap=fuse_cap, fuse_mtpr=fuse_mtpr,
@@ -744,12 +870,12 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
         prefetch_a_operand=prefetch_a_operand,
         scalar_tile_row_base=scalar_tile_row_base,
         xcd_schedule=xcd_schedule, schedule_audit=schedule_audit,
-        reset_stage2_queue=bool(stage2_work_head),
+        reset_stage2_queue=bool(stage2_work_head), shared_l13=bool(shared_l13), shared_xcd=bool(shared_xcd),
         swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
     )
     _run_compiled(
         launch, out, x, w, scale_x, scale_w, sorted_token_ids, expert_ids, num_valid_ids, out_scale,
         tokens, addr_disp, i32_cur_tok, addr_in_tok, addr_in_idx, addr_in_wts, addr_in_sc,
-        addr_parity, addr_expected, fx.Int64(stage2_work_head), stream,
+        addr_parity, addr_expected, fx.Int64(stage2_work_head), fx.Int64(shared_l13), stream,
     )
 # fmt: on

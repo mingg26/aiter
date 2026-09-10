@@ -35,7 +35,7 @@ class MegaMoEM3:
         w1: torch.Tensor, w1_scale: torch.Tensor, w2: torch.Tensor, w2_scale: torch.Tensor,
         max_tok_per_rank: int, mega_scheme: str = "fixedslot", swiglu_limit: float = 7.0,
         swiglu_alpha: float = 1.702, swiglu_beta: float = 1.0, local_reduce: bool = False,
-        local_reduce_xcd_local: bool = False):
+        local_reduce_xcd_local: bool = False, shared_w13=None, shared_w13_scale=None, shared_xcd_schedule=True):
     # fmt: on
         if experts % world_size != 0:
             raise ValueError(f"experts={experts} must be divisible by world_size={world_size}")
@@ -87,6 +87,25 @@ class MegaMoEM3:
         self.w2_scale = w2_scale if w2_scale.is_contiguous() else w2_scale.contiguous()
         self._build_fused_stage1(w1, w1_scale)
         self._build_fused_stage2()
+        self._shared_l13 = None
+        self._shared_xcd_schedule = bool(shared_xcd_schedule)
+        if (shared_w13 is None) != (shared_w13_scale is None):
+            raise ValueError("shared_w13 and shared_w13_scale must be provided together")
+        if shared_w13 is not None:
+            if self.mtpr != 8192:
+                raise ValueError("shared L13 experiment currently supports 8192 local tokens")
+            self._shared_w13 = shared_w13.contiguous().view(torch.uint8)
+            self._shared_w13_scale = shared_w13_scale.contiguous().view(torch.uint8)
+            self._shared_a2 = torch.empty((self.mtpr, self.inter_dim), device=self.dev, dtype=torch.float8_e4m3fn)
+            self._shared_a2_scale = torch.empty(self.mtpr * (self.inter_dim // 32) + 8192, device=self.dev, dtype=torch.uint8)
+            self._shared_rows = torch.arange(self.mtpr // 128, device=self.dev, dtype=torch.int32) * 128
+            self._shared_experts = torch.full_like(self._shared_rows, self.rank * self.epr)
+            # Separate cache lines for the eight shared XCD queue heads.
+            self._shared_task_count = torch.zeros(8 * 8, device=self.dev, dtype=torch.int64)
+            self._shared_l13 = torch.tensor([t.data_ptr() for t in (
+                self._shared_w13, self._shared_w13_scale, self._shared_a2,
+                self._shared_a2_scale, self._shared_rows, self._shared_experts, self._shared_task_count)], device=self.dev, dtype=torch.int64)
+
 
     def _build_fused_stage1(self, w1, w1_scale):
         from .mega_moe_stage1 import run_mega_moe_stage1
@@ -346,6 +365,8 @@ class MegaMoEM3:
             raise ValueError("scales must be contiguous")
         if config is None:
             config = self._select_config(cur_tok).stage1
+        if self._shared_l13 is not None and cur_tok != self.mtpr:
+            raise ValueError("shared L13 experiment requires the full 8192-token batch")
         op = self._s1_op
         # fmt: off
         self._s1_mega(
@@ -383,7 +404,9 @@ class MegaMoEM3:
             scalar_tile_row_base=config.scalar_tile_row_base,
             xcd_schedule=config.xcd_schedule, schedule_audit=config.schedule_audit,
             swiglu_limit=self.swiglu_limit, swiglu_alpha=self.swiglu_alpha,
-            swiglu_beta=self.swiglu_beta, stage2_work_head=stage2_work_head)
+            swiglu_beta=self.swiglu_beta, stage2_work_head=stage2_work_head,
+            shared_l13=0 if self._shared_l13 is None else self._shared_l13.data_ptr(),
+            shared_xcd=self._shared_l13 is not None and self._shared_xcd_schedule)
         # fmt: on
         self._s2_topk_ids = topk_ids
         self._s1_active_tile_m = config.sort_block_m

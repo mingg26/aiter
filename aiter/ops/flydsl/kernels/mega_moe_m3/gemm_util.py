@@ -641,7 +641,7 @@ class SiluQuantEpilogue:
     # fmt: off
     def __init__(self, *, out_rsrc, out_scale_rsrc, sorted_rsrc, tokens, inter_dim, m_repeat, num_acc_n,
         sort_block_m, tile_n, num_waves, lds_out, swiglu_limit=0.0, swiglu_alpha=1.0, swiglu_beta=0.0,
-        always_valid=False, out_tensor=None, waves_along_m=False):
+        always_valid=False, out_tensor=None, waves_along_m=False, bf16_intermediate=None):
     # fmt: on
         self._out_rsrc = out_rsrc
         self._out_scale_rsrc = out_scale_rsrc
@@ -663,6 +663,7 @@ class SiluQuantEpilogue:
         self._always_valid = always_valid
         self._out_tensor = out_tensor
         self._waves_along_m = waves_along_m
+        self._bf16_intermediate = bf16_intermediate
         self._lane = fx.thread_idx.x % 64
         self._sorted_scale_cols_i32 = (inter_dim // 32 + 7) // 8 * 8
 
@@ -684,6 +685,19 @@ class SiluQuantEpilogue:
         gv = Vec(gate_v4)
         uv = Vec(up_v4)
         beta = self._swiglu_beta
+        # The dense AMD M3 shared L13 materializes BF16 before activation.
+        # A uniform task flag preserves the routed FP32 intermediate contract.
+        if const_expr(self._bf16_intermediate is not None):
+            gv = Vec.from_elements([self._bf16_intermediate.select(
+                gv[i].to(fx.BFloat16).to(fx.Float32), gv[i]) for i in range_constexpr(4)], fx.Float32)
+            uv = Vec.from_elements([self._bf16_intermediate.select(
+                uv[i].to(fx.BFloat16).to(fx.Float32), uv[i]) for i in range_constexpr(4)], fx.Float32)
+
+        def finish(elems):
+            if const_expr(self._bf16_intermediate is not None):
+                elems = [self._bf16_intermediate.select(
+                    v.to(fx.BFloat16).to(fx.Float32), v) for v in elems]
+            return Vec.from_elements(elems, fx.Float32)
 
         def _up(u):
             # beta == 0 must emit exactly the pre-existing code so the DSV4 path
@@ -692,13 +706,13 @@ class SiluQuantEpilogue:
 
         if self._swiglu_limit <= 0:
             elems = [self._silu(gv[i]) * _up(uv[i]) for i in range_constexpr(4)]
-            return Vec.from_elements(elems, fx.Float32)
+            return finish(elems)
         limit = fx.Float32(self._swiglu_limit)
         elems = [
             self._silu(-(-gv[i]).maximumf(-limit)) * _up(fx.clampf(uv[i], -limit, limit))
             for i in range_constexpr(4)
         ]
-        return Vec.from_elements(elems, fx.Float32)
+        return finish(elems)
 
     def store(self, acc, tile_i32, tile_row_base_i32, n_tile_base_i32):
         combined = self._combine(acc)
