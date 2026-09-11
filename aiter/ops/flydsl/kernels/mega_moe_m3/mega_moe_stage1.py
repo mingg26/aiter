@@ -143,7 +143,9 @@ def compile_mega_moe_stage1(
             assert sort_block_m == 64 or int(fuse_mtpr) <= sort_block_m, (
                 'shared row table in MegaMoEM3 still strides by 64')
         else:
-            assert int(fuse_mtpr) == 8192 and payload_tile_ready and use_tile_resource
+            # 512..4096 share the 8192 regime: rows per expert is 8*T*topk/experts,
+            # so the 128-row sort block divides every size's per-expert row count.
+            assert int(fuse_mtpr) in (512, 1024, 2048, 4096, 8192) and payload_tile_ready and use_tile_resource
             assert (sort_block_m, tile_n, tile_k, num_waves, band_m) == (128, 256, 256, 8, 4)
     planner_blocks = 1
     # Keep the fused grid on an exact CU multiple instead of appending control/producer CTAs as a tail.

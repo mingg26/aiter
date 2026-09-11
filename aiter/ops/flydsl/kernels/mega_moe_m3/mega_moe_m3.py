@@ -92,8 +92,11 @@ class MegaMoEM3:
         if (shared_w13 is None) != (shared_w13_scale is None):
             raise ValueError("shared_w13 and shared_w13_scale must be provided together")
         if shared_w13 is not None:
-            if self.mtpr not in (16, 32, 64, 128, 256, 8192):
-                raise ValueError("shared L13 supports full 16, 32, 64, 128, 256 or 8192 local tokens")
+            # 512..4096 join the 8192 regime: rows per expert is 8*T*topk/experts,
+            # i.e. 128 at T=512 and a multiple of 128 above it, so the 128-row sort
+            # block and the 128-row shared tile both divide evenly at every size.
+            if self.mtpr not in (16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192):
+                raise ValueError("shared L13 supports full 16, 32, 64, 128, 256, 512, 1024, 2048, 4096 or 8192 local tokens")
             if (self.model_dim, self.inter_dim, self.world_size, self.topk) != (6144, 3072, 8, 4):
                 raise ValueError("shared L13 requires EP8/top4/H6144/I3072")
             self._shared_w13 = shared_w13.contiguous().view(torch.uint8)
@@ -115,8 +118,9 @@ class MegaMoEM3:
         if shared_w2 is not None:
             if self._shared_l13 is None or not self._shared_xcd_schedule:
                 raise ValueError("shared L2 requires shared L13 and XCD scheduling")
-            if (self.model_dim, self.inter_dim) != (6144, 3072) or self.mtpr not in (16, 32, 64, 128, 256, 8192):
-                raise ValueError("shared L2 supports H6144/I3072 with 16, 32, 64, 128, 256 or 8192 local tokens")
+            if (self.model_dim, self.inter_dim) != (6144, 3072) or self.mtpr not in (
+                    16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192):
+                raise ValueError("shared L2 supports H6144/I3072 with the enumerated local token counts")
             self._shared_w2 = shared_w2.contiguous().view(torch.uint8)
             self._shared_w2_scale = shared_w2_scale.contiguous().view(torch.uint8)
             if self._shared_w2.numel() != self.model_dim * self.inter_dim:
@@ -282,20 +286,81 @@ class MegaMoEM3:
                 and not self.local_reduce and not self.local_reduce_xcd_local
                 and config.p2p_quant == "none"
                 and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())):
+            # Per-token measured optima, one paired AB/BA run each; the full
+            # fields and evidence paths live in bench/dep8_best_configs.json.
+            # Against the standalone path: 1.05x at 16, 1.15x at 32, 1.25x at
+            # 64, 1.47x at 128, 1.49x at 256 tokens. The 256-token settings
+            # this used to emit for every size are 0.94x at 16 tokens.
+            #   sort_block_m: a 32-row sort block needs the local batch to fit
+            #     one shared tile, which holds at 16 and 32 tokens only.
+            #   stage2.use_nt: a non-temporal B load pays off when
+            #     sort_block_m // block_m == 1 gives each B panel one consumer.
+            #     That also holds at 16 tokens, where the gain measured flat.
+            # Fused shared requires preplanning (Stage1 asserts it), so the
+            # 256-token entry keeps preplan_waves=0 only on the unfused path.
+            fused_shared = self._shared_l13 is not None
+            sort_block_m = 32 if tokens in (16, 32) else 64
+            s2_block_m = 64 if tokens == 64 else 32
             config = MegaMoEConfig(
                 stage1=Stage1Config(
-                    sort_block_m=64, tile_n=512, tile_k=256, num_waves=8,
-                    grid_mult=1, num_dispatch_cu=32, mfma_amajor=True,
-                    async_a_copy=True, use_tile_resource=False, b_nt=0,
+                    sort_block_m=sort_block_m, tile_n=512, tile_k=256, num_waves=8,
+                    grid_mult=1, num_dispatch_cu=32 if tokens == 256 else 48,
+                    mfma_amajor=True,
+                    async_a_copy=True, use_tile_resource=False,
+                    b_nt=0 if tokens == 256 else 2,
                     xcd_schedule=True, band_m=4, padding_uniform_srcmap=True,
                     count_uniform_matrix=True, row_base_prefetch=True,
                     prefetch_b_before_a=True,
-                    preplan_waves=4 if small_shared else 0,
+                    preplan_waves=4 if fused_shared else 0,
                     skip_launch_barrier=False),
                 stage2=Stage2Config(
-                    block_m=32, block_n=128, block_k=256, persist=True,
-                    persist_cu=128, use_nt=False, queue_grid_mult=5,
+                    block_m=s2_block_m, block_n=128, block_k=256, persist=True,
+                    persist_cu=128, use_nt=tokens in (32, 64), queue_grid_mult=5,
                     xcd_schedule=True, band_m=8, shared_schedule="early2"),
+                p2p_quant="none")
+        # Measured EP8 512..8192 configuration. These sizes inherit the 8192
+        # geometry verbatim -- the only per-size fields are the dispatch payload
+        # chunk (min(T, 2048), which must stay a multiple of sort_block_m) and
+        # num_dispatch_cu. A 32-CTA dispatch beats the inherited 96 at the two
+        # smallest sizes and is noise above them, so it is scoped to 512 and 1024:
+        #   512:  -1.70% on the complete path (-1.93%/-1.48% over two paired runs
+        #         against a four-run baseline with 0.640% cross-run spread)
+        #   1024: -0.93%/-0.96% over two runs against a three-run baseline with
+        #         0.244% spread -- the tightest of the three measurements
+        #   2048: -0.37%, inside that batch's 0.62% threshold, as are 48 and 64
+        # At 512, dcu 48 and 24 also land inside the spread and 16 loses 10.7%.
+        # Complete-path speedups against the standalone path, with this preset:
+        # 1.481x at 512, 1.578x at 1024, 1.848x at 2048, 1.959x at 4096,
+        # 1.987x at 8192. 8192 is included so the EP8 default reaches the same
+        # frozen geometry the 8192 measurement used; before this it fell through
+        # to the generic heuristic while only the harness passed the tuned config.
+        # num_dispatch_cu=64 is NOT offered at 512: it fails the all-local skew
+        # probe's 256-replay bit-exactness on one rank, which is a dispatch
+        # grouping defect and not a performance result.
+        if ((self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk)
+                == (8, 16, 6144, 3072, 4)
+                and tokens in (512, 1024, 2048, 4096, 8192) and self.mtpr == tokens
+                and self._shared_l13 is not None
+                and config.p2p_quant == "none"
+                and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())):
+            config = MegaMoEConfig(
+                stage1=Stage1Config(
+                    num_dispatch_cu=32 if tokens in (512, 1024) else 96,
+                    payload_chunk_rows=min(tokens, 2048),
+                    sort_block_m=128, tile_n=256, num_waves=8, grid_mult=1, mfma_amajor=True,
+                    async_a_copy=True, use_tile_resource=True, b_nt=0, waves_per_eu_hint=2, tile_k=256,
+                    pipe_weights=True, swizzle_a=True, work_shards=8, external_grouping=True,
+                    external_counting=True, skip_launch_barrier=False, padding_uniform_srcmap=True,
+                    count_uniform_matrix=True, row_base_prefetch=True, prefetch_b_before_a=True,
+                    joint_work_flags=False, preplan_waves=4, payload_tile_ready=True,
+                    payload_tile_publish_early=True, packed_a_scale=True, unroll_a_pingpong=True,
+                    split_a_lds=True, fp8_b_waitcnt=False, scalar_tile_row_base=False,
+                    prefetch_a_operand=False, xcd_schedule=True, schedule_audit=False, band_m=4),
+                stage2=Stage2Config(
+                    block_m=64, block_n=128, persist=True, persist_cu=240, use_nt=False,
+                    persist_strided=False, skew_cu=96, block_k=128, b_hoist=True, ascale_prefetch=True,
+                    spatial_partition=402, bf16_lds=False, queue_grid_mult=5, xcd_schedule=True,
+                    band_m=16, schedule_audit=False, shared_schedule='tail'),
                 p2p_quant="none")
         # Best measured EP4 M3 8192-token stage configurations. S1 retains
         # M128 and double-stage B; its two-CTA alternatives regress. S2 uses

@@ -356,7 +356,9 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         # where it is worth 6.8% on its own. (64, 64, ...) is b64's measured best:
         # a 64-row S2 tile under a 64-row sort block gives each B panel exactly one
         # consumer, which is what makes a non-temporal B load profitable there.
-        assert (max_tok, BM, BN, BK, SBM) in ((16, 32, 128, 256, 64), (16, 32, 128, 256, 32), (32, 32, 128, 256, 64), (32, 32, 128, 256, 32), (64, 32, 128, 256, 64), (128, 32, 128, 256, 64), (256, 32, 128, 256, 64), (64, 64, 128, 256, 64), (8192, 64, 128, 128, 128))
+        assert (max_tok, BM, BN, BK, SBM) in ((16, 32, 128, 256, 64), (16, 32, 128, 256, 32), (32, 32, 128, 256, 64), (32, 32, 128, 256, 32), (64, 32, 128, 256, 64), (128, 32, 128, 256, 64), (256, 32, 128, 256, 64), (64, 64, 128, 256, 64), (8192, 64, 128, 128, 128),
+                                                  (512, 64, 128, 128, 128), (1024, 64, 128, 128, 128),
+                                                  (2048, 64, 128, 128, 128), (4096, 64, 128, 128, 128))
         assert persist and xcd_schedule and band_m > 1 and max_tok % 16 == 0
         assert p2p_quant_type == "none" and not has_pad
     shared_early2 = shared_l2 and shared_schedule == "early2"
