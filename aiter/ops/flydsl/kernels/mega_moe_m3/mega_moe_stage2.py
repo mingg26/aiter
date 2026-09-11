@@ -350,13 +350,18 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         raise ValueError(f"unsupported shared_schedule={shared_schedule!r}")
     if shared_l2:
         assert (model_dim, inter_dim) == (6144, 3072)
-        assert (max_tok, BM, BN, BK, SBM) in ((16, 32, 128, 256, 64), (32, 32, 128, 256, 64), (64, 32, 128, 256, 64), (128, 32, 128, 256, 64), (256, 32, 128, 256, 64), (8192, 64, 128, 128, 128))
+        # SBM follows Stage1's sort_block_m: (16, ..., 32) pairs with the measured
+        # b16 S1 that emits 32-row sort blocks.
+        assert (max_tok, BM, BN, BK, SBM) in ((16, 32, 128, 256, 64), (16, 32, 128, 256, 32), (32, 32, 128, 256, 64), (64, 32, 128, 256, 64), (128, 32, 128, 256, 64), (256, 32, 128, 256, 64), (8192, 64, 128, 128, 128))
         assert persist and xcd_schedule and band_m > 1 and max_tok % 16 == 0
         assert p2p_quant_type == "none" and not has_pad
     shared_early2 = shared_l2 and shared_schedule == "early2"
     if shared_early2:
         geometry = (npes, max_tok, BM, BN, BK, SBM, band_m, cu_num, queue_grid_mult)
-        if not ((not local_reduce and max_tok in (16, 32, 64, 128, 256) and geometry == (8, max_tok, 32, 128, 256, 64, 8, 128, 5))
+        small_sbm = 32 if max_tok == 16 else 64
+        if not ((not local_reduce and max_tok in (16, 32, 64, 128, 256)
+                 and geometry in ((8, max_tok, 32, 128, 256, 64, 8, 128, 5),
+                                  (8, max_tok, 32, 128, 256, small_sbm, 8, 128, 5)))
                 or (local_reduce_xcd_local and geometry == (8, 8192, 64, 128, 128, 128, 16, 240, 5))):
             raise ValueError("early2 requires a validated EP8 shared L2 geometry")
     log2_max_tok = max_tok.bit_length() - 1

@@ -132,7 +132,15 @@ def compile_mega_moe_stage1(
         assert preplanned and xcd_schedule and prefetch_b_before_a and not schedule_audit
         if int(fuse_mtpr) in (16, 32, 64, 128, 256):
             assert shared_xcd and not payload_tile_ready and not use_tile_resource
-            assert (sort_block_m, tile_n, tile_k, num_waves, band_m) == (64, 512, 256, 8, 4)
+            # A 32-row tile is measured at EP8 b16, where each expert holds only a
+            # handful of rows and a 64-row tile is mostly padding. Every
+            # sort_block_m user below scales with it; the shared queue keeps a
+            # single tile only while the local batch still fits one, which is what
+            # lets the 64-strided shared row table in MegaMoEM3 stay valid.
+            assert (tile_n, tile_k, num_waves, band_m) == (512, 256, 8, 4)
+            assert sort_block_m in (32, 64)
+            assert sort_block_m == 64 or int(fuse_mtpr) <= sort_block_m, (
+                'shared row table in MegaMoEM3 still strides by 64')
         else:
             assert int(fuse_mtpr) == 8192 and payload_tile_ready and use_tile_resource
             assert (sort_block_m, tile_n, tile_k, num_waves, band_m) == (128, 256, 256, 8, 4)
@@ -161,7 +169,8 @@ def compile_mega_moe_stage1(
     if xcd_schedule:
         assert WORK_SHARDS == 8
         if small_xcd:
-            assert (sort_block_m, tile_n, tile_k, N_TILES) == (64, 512, 256, 12)
+            assert (tile_n, tile_k, N_TILES) == (512, 256, 12)
+            assert sort_block_m in (32, 64)
             assert fuse_mtpr in (16, 32, 64, 128, 256, 512, 1024)
             assert not fixed_slot_dispatch
         else:
