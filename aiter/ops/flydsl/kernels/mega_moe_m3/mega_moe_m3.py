@@ -16,6 +16,9 @@ from ..flydsl_dispatch_combine_intranode_op import (
 from .dispatch import DISPATCH_TABLE_SIZE, DispatchSlot
 from .mega_moe_config import (
     FIXED_SLOT_MAX_MTPR,
+    SHARED_FUSED_MTPR,
+    SHARED_FUSED_MTPR_LARGE,
+    SHARED_FUSED_MTPR_SMALL,
     _STAGE1_OVERRIDE_ENV,
     MegaMoEConfig,
     Stage1Config,
@@ -68,7 +71,7 @@ class MegaMoEM3:
             raise ValueError("swiglu_limit must be non-negative")
         self.dev = torch.device("cuda", rank)
         self.max_recv = self.world_size * self.mtpr
-        compact = self.mtpr > FIXED_SLOT_MAX_MTPR or (shared_w13 is not None and self.mtpr in (16, 32, 64, 128))
+        compact = self.mtpr > FIXED_SLOT_MAX_MTPR or (shared_w13 is not None and self.mtpr in SHARED_FUSED_MTPR)
         capacity_tile_m = 128 if compact else 32
         self._s1_fixed_slot = not compact
         self._s1_scale_dim = self.model_dim // 32
@@ -92,11 +95,10 @@ class MegaMoEM3:
         if (shared_w13 is None) != (shared_w13_scale is None):
             raise ValueError("shared_w13 and shared_w13_scale must be provided together")
         if shared_w13 is not None:
-            # 512..4096 join the 8192 regime: rows per expert is 8*T*topk/experts,
-            # i.e. 128 at T=512 and a multiple of 128 above it, so the 128-row sort
-            # block and the 128-row shared tile both divide evenly at every size.
-            if self.mtpr not in (16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192):
-                raise ValueError("shared L13 supports full 16, 32, 64, 128, 256, 512, 1024, 2048, 4096 or 8192 local tokens")
+            # The validated set and the reason for its shape live in mega_moe_config;
+            # Stage1's two regimes and Stage2's tile table read the same constants.
+            if self.mtpr not in SHARED_FUSED_MTPR:
+                raise ValueError(f"shared L13 supports full local batches of {SHARED_FUSED_MTPR}, got {self.mtpr}")
             if (self.model_dim, self.inter_dim, self.world_size, self.topk) != (6144, 3072, 8, 4):
                 raise ValueError("shared L13 requires EP8/top4/H6144/I3072")
             self._shared_w13 = shared_w13.contiguous().view(torch.uint8)
@@ -118,9 +120,9 @@ class MegaMoEM3:
         if shared_w2 is not None:
             if self._shared_l13 is None or not self._shared_xcd_schedule:
                 raise ValueError("shared L2 requires shared L13 and XCD scheduling")
-            if (self.model_dim, self.inter_dim) != (6144, 3072) or self.mtpr not in (
-                    16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192):
-                raise ValueError("shared L2 supports H6144/I3072 with the enumerated local token counts")
+            if (self.model_dim, self.inter_dim) != (6144, 3072) or self.mtpr not in SHARED_FUSED_MTPR:
+                raise ValueError(f"shared L2 supports H6144/I3072 with local batches of {SHARED_FUSED_MTPR}, "
+                                 f"got {self.model_dim}/{self.inter_dim} and {self.mtpr}")
             self._shared_w2 = shared_w2.contiguous().view(torch.uint8)
             self._shared_w2_scale = shared_w2_scale.contiguous().view(torch.uint8)
             if self._shared_w2.numel() != self.model_dim * self.inter_dim:
@@ -339,7 +341,7 @@ class MegaMoEM3:
         # grouping defect and not a performance result.
         if ((self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk)
                 == (8, 16, 6144, 3072, 4)
-                and tokens in (512, 1024, 2048, 4096, 8192) and self.mtpr == tokens
+                and tokens in SHARED_FUSED_MTPR_LARGE and self.mtpr == tokens
                 and self._shared_l13 is not None
                 and config.p2p_quant == "none"
                 and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())):
@@ -714,7 +716,8 @@ class MegaMoEM3:
             shared_l2=self._shared_l2.data_ptr() if self._shared_l2 is not None else 0, **invariants)
         # fmt: on
         self._g2_active_block_m = stage2.block_m
-        prefetch_local = self._shared_l2 is not None and not self.local_reduce and run_tokens in (16, 32, 64, 128, 256)
+        prefetch_local = (self._shared_l2 is not None and not self.local_reduce
+                          and run_tokens in SHARED_FUSED_MTPR_SMALL)
         return comb_op.combine_no_stage1(
             self._shared_out if self._shared_l2 is not None else self._g2_combine_placeholder,
             None, None, cur_tok=run_tokens, enable_weights=False,

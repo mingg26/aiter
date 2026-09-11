@@ -25,6 +25,59 @@ TOKEN_BUCKETS = (
     32768,
 )
 P2P_FP8_MIN_MTPR = 1024
+
+# --- Validated shapes for the fused shared-expert path -----------------------
+# One source of truth for the shape sets that MegaMoEM3, Stage1 and Stage2 all
+# have to agree on. They used to be six separate literals whose agreement was
+# coincidental; anything that widens one of these must widen the others with it.
+#
+# The split is Stage1's regime boundary, not an arbitrary size list: <=256 runs
+# the finite small-XCD band schedule with a 512-wide N tile, >=512 runs the
+# tile-ready 8192 schedule with a 128-row sort block. Rows per expert is
+# npes*T*topk/experts, i.e. exactly 128 at T=512 and a multiple of 128 above it,
+# which is what lets the 128-row sort block and the 128-row shared row table in
+# MegaMoEM3 divide evenly at every large size.
+SHARED_FUSED_MTPR_SMALL = (16, 32, 64, 128, 256)
+SHARED_FUSED_MTPR_LARGE = (512, 1024, 2048, 4096, 8192)
+SHARED_FUSED_MTPR = SHARED_FUSED_MTPR_SMALL + SHARED_FUSED_MTPR_LARGE
+
+# Stage1 geometry each regime was measured with. tile_k is not listed: GEMM1
+# pins it to 256 globally (A_K_STEP_BYTES), so repeating it per regime only
+# duplicated that assert. sort_block_m is free within the small regime (32 or
+# 64, guarded there against the shared row table stride) and fixed in the large.
+SHARED_FUSED_S1_GEOMETRY = {
+    "small": dict(tile_n=512, num_waves=8, band_m=4),
+    "large": dict(sort_block_m=128, tile_n=256, num_waves=8, band_m=4),
+}
+
+# Stage2 shapes validated with fused shared L2, as max_tok -> ((BN, BK), (BM, SBM) pairs).
+# SBM follows Stage1's sort_block_m, so the SBM column mirrors what Stage1 may
+# emit at that size: 32 only at 16 and 32, where the local batch still fits one
+# shared tile (measured at EP8 b32, where it is worth 6.8% on its own), 64
+# through 256, and 128 for the large regime. BM=64 pairs with BN=128 only --
+# BM=64 with BN=256 exceeds the 64 KB workgroup LDS. The (64, 64) pair at
+# max_tok=64 is that size's measured best: a 64-row S2 tile under a 64-row sort
+# block gives each B panel exactly one consumer, which is what makes the
+# non-temporal B load profitable there.
+SHARED_L2_S2_SHAPES = {
+    16: ((128, 256), ((32, 64), (32, 32))),
+    32: ((128, 256), ((32, 64), (32, 32))),
+    64: ((128, 256), ((32, 64), (64, 64))),
+    128: ((128, 256), ((32, 64),)),
+    256: ((128, 256), ((32, 64),)),
+    512: ((128, 128), ((64, 128),)),
+    1024: ((128, 128), ((64, 128),)),
+    2048: ((128, 128), ((64, 128),)),
+    4096: ((128, 128), ((64, 128),)),
+    8192: ((128, 128), ((64, 128),)),
+}
+
+
+def shared_l2_s2_shape_ok(max_tok: int, BM: int, BN: int, BK: int, SBM: int) -> bool:
+    """Is this Stage2 tile validated for the fused shared L2 path at max_tok?"""
+    entry = SHARED_L2_S2_SHAPES.get(int(max_tok))
+    return bool(entry) and (BN, BK) == entry[0] and (BM, SBM) in entry[1]
+
 FIXED_SLOT_MAX_MTPR = 255
 MAX_MTPR_CLASS = 32768
 REFERENCE_EXPERTS_PER_RANK = 48

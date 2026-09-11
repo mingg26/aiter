@@ -25,6 +25,11 @@ from .dispatch import (
 )
 from .gemm1 import _LdsF32View, _SplitABuffer, build_fused_gemm1
 from .gemm_util import _buffer_load, _buffer_store, _make_buffer, _make_buffer_from_addr
+from .mega_moe_config import (
+    SHARED_FUSED_MTPR_LARGE,
+    SHARED_FUSED_MTPR_SMALL,
+    SHARED_FUSED_S1_GEOMETRY,
+)
 
 _SC0_CACHE = 1
 _BUFFER_OFFSET_ABI_BYTES = 1 << 32
@@ -101,6 +106,9 @@ def compile_mega_moe_stage1(
         raise RuntimeError(f"MegaMoE v2 stage1 requires CDNA4 (gfx95x), got {arch or 'unknown'}")
     NUM_WAVES = int(num_waves)
     assert NUM_WAVES > 1, "planner needs one communication wave and at least one grouping wave"
+    # GEMM1's A step is one tile_k of FP8, so tile_k is fixed for every shape and
+    # schedule. Checked once here; the geometry checks below no longer repeat it.
+    assert tile_k == 256, "MegaMoE v2 GEMM1 requires tile_k=256"
     assert 1 <= waves_per_eu_hint <= 4
     assert tile_n % NUM_WAVES == 0
     n_per_wave = tile_n // NUM_WAVES
@@ -131,22 +139,28 @@ def compile_mega_moe_stage1(
     assert not shared_xcd or shared_l13
     if shared_l13:
         assert preplanned and xcd_schedule and prefetch_b_before_a and not schedule_audit
-        if int(fuse_mtpr) in (16, 32, 64, 128, 256):
+        # Both regimes and their token sets live in mega_moe_config so Stage2 and
+        # MegaMoEM3 cannot drift from them.
+        if int(fuse_mtpr) in SHARED_FUSED_MTPR_SMALL:
             assert shared_xcd and not payload_tile_ready and not use_tile_resource
+            want = SHARED_FUSED_S1_GEOMETRY["small"]
+            got = dict(tile_n=tile_n, num_waves=num_waves, band_m=band_m)
+            assert got == want, f"fused shared L13 small regime wants {want}, got {got}"
             # A 32-row tile is measured at EP8 b16, where each expert holds only a
             # handful of rows and a 64-row tile is mostly padding. Every
             # sort_block_m user below scales with it; the shared queue keeps a
             # single tile only while the local batch still fits one, which is what
             # lets the 64-strided shared row table in MegaMoEM3 stay valid.
-            assert (tile_n, tile_k, num_waves, band_m) == (512, 256, 8, 4)
             assert sort_block_m in (32, 64)
             assert sort_block_m == 64 or int(fuse_mtpr) <= sort_block_m, (
                 'shared row table in MegaMoEM3 still strides by 64')
         else:
-            # 512..4096 share the 8192 regime: rows per expert is 8*T*topk/experts,
-            # so the 128-row sort block divides every size's per-expert row count.
-            assert int(fuse_mtpr) in (512, 1024, 2048, 4096, 8192) and payload_tile_ready and use_tile_resource
-            assert (sort_block_m, tile_n, tile_k, num_waves, band_m) == (128, 256, 256, 8, 4)
+            assert int(fuse_mtpr) in SHARED_FUSED_MTPR_LARGE, (
+                f"fused shared L13 has no validated regime for {fuse_mtpr} local tokens")
+            assert payload_tile_ready and use_tile_resource
+            want = SHARED_FUSED_S1_GEOMETRY["large"]
+            got = dict(sort_block_m=sort_block_m, tile_n=tile_n, num_waves=num_waves, band_m=band_m)
+            assert got == want, f"fused shared L13 large regime wants {want}, got {got}"
     planner_blocks = 1
     # Keep the fused grid on an exact CU multiple instead of appending control/producer CTAs as a tail.
     grid_x = num_cu * grid_mult - planner_blocks - dispatch_blocks
@@ -158,9 +172,7 @@ def compile_mega_moe_stage1(
     assert NUM_ACC_N % 2 == 0 and M_REPEAT % 2 == 0
 
     TILE_K_BYTES = tile_k // 2
-    assert TILE_K_BYTES % 128 == 0
     A_K_STEP_BYTES = tile_k
-    assert A_K_STEP_BYTES == 256, "MegaMoE v2 GEMM1 requires tile_k=256"
     K_ITERS = model_dim // tile_k
     TOTAL_THREADS = NUM_WAVES * 64
     WORK_SHARDS = 4 if work_shards is None and int(fuse_mtpr) >= 8192 else 8
@@ -172,8 +184,11 @@ def compile_mega_moe_stage1(
     if xcd_schedule:
         assert WORK_SHARDS == 8
         if small_xcd:
-            assert (tile_n, tile_k, N_TILES) == (512, 256, 12)
+            assert (tile_n, N_TILES) == (512, 12)
             assert sort_block_m in (32, 64)
+            # Deliberately NOT the fused-shared token set: this is the unfused
+            # small-XCD path, which EP4 also drives at 512 and 1024 with a 64-row
+            # sort block, and which no one has validated at 2048 and above.
             assert fuse_mtpr in (16, 32, 64, 128, 256, 512, 1024)
             assert not fixed_slot_dispatch
         else:
@@ -196,7 +211,7 @@ def compile_mega_moe_stage1(
         # Independent A ping/pong and split CShuffle addressing scale with M.
         # Keep the audited N/K/wave geometry while testing smaller row tiles.
         assert sort_block_m in (32, 64, 128)
-        assert (tile_n, tile_k, num_waves) == (256, 256, 8)
+        assert (tile_n, num_waves) == (256, 8)
         assert K_ITERS % 2 == 0 and lds_pool_bytes == 2 * a_lds_size
 
     fz_npes, fz_epr, fz_k = int(fuse_npes), int(experts_per_rank), int(fuse_topk)

@@ -22,6 +22,7 @@ from ..tensor_shim import _run_compiled
 from .. import communication_ops_utils as comm_ops
 
 from .local_reduce import scatter_local_reduce, pack_local_reduce_metadata
+from .mega_moe_config import SHARED_FUSED_MTPR_SMALL, shared_l2_s2_shape_ok
 
 from .gemm2 import (
     _resolve_g2_knobs,
@@ -350,30 +351,34 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         raise ValueError(f"unsupported shared_schedule={shared_schedule!r}")
     if shared_l2:
         assert (model_dim, inter_dim) == (6144, 3072)
-        # SBM follows Stage1's sort_block_m: (16, ..., 32) pairs with the measured
-        # b16 S1 that emits 32-row sort blocks.
-        # b32 pairs with a 32-row S1 sort block as well; measured at EP8 b32,
-        # where it is worth 6.8% on its own. (64, 64, ...) is b64's measured best:
-        # a 64-row S2 tile under a 64-row sort block gives each B panel exactly one
-        # consumer, which is what makes a non-temporal B load profitable there.
-        assert (max_tok, BM, BN, BK, SBM) in ((16, 32, 128, 256, 64), (16, 32, 128, 256, 32), (32, 32, 128, 256, 64), (32, 32, 128, 256, 32), (64, 32, 128, 256, 64), (128, 32, 128, 256, 64), (256, 32, 128, 256, 64), (64, 64, 128, 256, 64), (8192, 64, 128, 128, 128),
-                                                  (512, 64, 128, 128, 128), (1024, 64, 128, 128, 128),
-                                                  (2048, 64, 128, 128, 128), (4096, 64, 128, 128, 128))
+        # Validated tiles come from SHARED_L2_S2_SHAPES in mega_moe_config, which
+        # Stage1 and MegaMoEM3 read too: SBM mirrors Stage1's sort_block_m, BM=64
+        # pairs only with BN=128 (BM=64 with BN=256 exceeds the 64 KB workgroup
+        # LDS), and the large regime keeps 8192's (BM 64, BN 128, BK 128, SBM 128).
+        assert shared_l2_s2_shape_ok(max_tok, BM, BN, BK, SBM), (
+            f"fused shared L2 has no validated Stage2 tile for max_tok={max_tok} "
+            f"BM={BM} BN={BN} BK={BK} SBM={SBM}")
         assert persist and xcd_schedule and band_m > 1 and max_tok % 16 == 0
         assert p2p_quant_type == "none" and not has_pad
     shared_early2 = shared_l2 and shared_schedule == "early2"
     if shared_early2:
-        geometry = (npes, max_tok, BM, BN, BK, SBM, band_m, cu_num, queue_grid_mult)
-        # b16 and b32 both fit a single shared tile, so both may emit 32-row
-        # sort blocks; larger batches keep the 64-row shared tile.
-        small_sbm = 32 if max_tok in (16, 32) else 64
-        # b64's measured best: BM follows SBM instead of halving it.
-        wide_bm = ((8, 64, 64, 128, 256, 64, 8, 128, 5),) if max_tok == 64 else ()
-        if not ((not local_reduce and max_tok in (16, 32, 64, 128, 256)
-                 and geometry in ((8, max_tok, 32, 128, 256, 64, 8, 128, 5),
-                                  (8, max_tok, 32, 128, 256, small_sbm, 8, 128, 5)) + wide_bm)
-                or (local_reduce_xcd_local and geometry == (8, 8192, 64, 128, 128, 128, 16, 240, 5))):
-            raise ValueError("early2 requires a validated EP8 shared L2 geometry")
+        # The early2 schedule is validated on two operating points: the small
+        # EP8 batches without local reduction, whose tiles are the same
+        # SHARED_L2_S2_SHAPES entries the assert above uses, and the 8192
+        # XCD-local point. Everything outside the tile itself (queue band, CU
+        # count, queue grid) is fixed at what those runs used.
+        small_ok = (not local_reduce and max_tok in SHARED_FUSED_MTPR_SMALL
+                    and (npes, band_m, cu_num, queue_grid_mult) == (8, 8, 128, 5)
+                    and shared_l2_s2_shape_ok(max_tok, BM, BN, BK, SBM))
+        large_ok = (local_reduce_xcd_local
+                    and (npes, max_tok, BM, BN, BK, SBM, band_m, cu_num, queue_grid_mult)
+                    == (8, 8192, 64, 128, 128, 128, 16, 240, 5))
+        if not (small_ok or large_ok):
+            raise ValueError(
+                f"early2 requires a validated EP8 shared L2 geometry, got npes={npes} "
+                f"max_tok={max_tok} BM={BM} BN={BN} BK={BK} SBM={SBM} band_m={band_m} "
+                f"cu_num={cu_num} queue_grid_mult={queue_grid_mult} "
+                f"local_reduce={local_reduce} xcd_local={local_reduce_xcd_local}")
     log2_max_tok = max_tok.bit_length() - 1
     mask_max_tok = max_tok - 1
     N_OUT = model_dim
