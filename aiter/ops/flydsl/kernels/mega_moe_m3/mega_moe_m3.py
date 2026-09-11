@@ -303,6 +303,13 @@ class MegaMoEM3:
             fused_shared = self._shared_l13 is not None
             sort_block_m = 32 if tokens in (16, 32) else 64
             s2_block_m = 64 if tokens == 64 else 32
+            #   stage2.block_n: 256 halves how often Stage2 re-reads its A2 panel
+            #     and is the measured optimum at 16, 32 and 128 (0.6-1.0% on the
+            #     complete path, direction reproduced over 6+2+2 paired runs). It
+            #     loses 2.5% at 256, and at 64 it would force block_m back to 32
+            #     because BM=64 with BN=256 exceeds the 64 KB workgroup LDS, giving
+            #     up more than it wins. SHARED_L2_S2_SHAPES admits exactly these.
+            s2_block_n = 256 if tokens in (16, 32, 128) else 128
             config = MegaMoEConfig(
                 stage1=Stage1Config(
                     sort_block_m=sort_block_m, tile_n=512, tile_k=256, num_waves=8,
@@ -316,7 +323,7 @@ class MegaMoEM3:
                     preplan_waves=4 if fused_shared else 0,
                     skip_launch_barrier=False),
                 stage2=Stage2Config(
-                    block_m=s2_block_m, block_n=128, block_k=256, persist=True,
+                    block_m=s2_block_m, block_n=s2_block_n, block_k=256, persist=True,
                     persist_cu=128, use_nt=tokens in (32, 64), queue_grid_mult=5,
                     xcd_schedule=True, band_m=8, shared_schedule="early2"),
                 p2p_quant="none")

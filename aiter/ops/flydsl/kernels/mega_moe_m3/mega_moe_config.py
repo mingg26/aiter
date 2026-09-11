@@ -50,33 +50,46 @@ SHARED_FUSED_S1_GEOMETRY = {
     "large": dict(sort_block_m=128, tile_n=256, num_waves=8, band_m=4),
 }
 
-# Stage2 shapes validated with fused shared L2, as max_tok -> ((BN, BK), (BM, SBM) pairs).
+# Stage2 shapes validated with fused shared L2, as max_tok -> (BN, BK, BM, SBM)
+# tuples. This is a ledger of what has actually been run through the numeric,
+# bit-exact-replay and epoch gates, not a derivable constraint: BN divides the
+# shared L2 queue period (model_dim // BN), which the host's epoch bookkeeping in
+# MegaMoEM3 and the kernel compute separately, so an unvalidated BN does not fail
+# loudly -- it drifts the epoch. Structural limits are separate and live in
+# compile_mega_moe_stage2 (BN % 64, 256 % BK, BK % 128), except one that shows up
+# here as an absence: BM=64 with BN=256 exceeds the 64 KB workgroup LDS.
+#
 # SBM follows Stage1's sort_block_m, so the SBM column mirrors what Stage1 may
 # emit at that size: 32 only at 16 and 32, where the local batch still fits one
 # shared tile (measured at EP8 b32, where it is worth 6.8% on its own), 64
-# through 256, and 128 for the large regime. BM=64 pairs with BN=128 only --
-# BM=64 with BN=256 exceeds the 64 KB workgroup LDS. The (64, 64) pair at
+# through 256, and 128 for the large regime. The (64, 64) BM/SBM pair at
 # max_tok=64 is that size's measured best: a 64-row S2 tile under a 64-row sort
 # block gives each B panel exactly one consumer, which is what makes the
 # non-temporal B load profitable there.
+#
+# BN=256 halves the number of times Stage2 re-reads its A2 panel and is the
+# measured optimum at 16, 32 and 128 (0.6-1.0% on the complete path, direction
+# reproduced over 6+2+2 paired runs). It loses at 256 (-2.5%) and at 512 it is
+# only reachable with BM=32, whose own penalty is larger, so neither size lists
+# it: production emits only what this table allows, and sweeps that want to
+# explore further use a kernel-source variant.
 SHARED_L2_S2_SHAPES = {
-    16: ((128, 256), ((32, 64), (32, 32))),
-    32: ((128, 256), ((32, 64), (32, 32))),
-    64: ((128, 256), ((32, 64), (64, 64))),
-    128: ((128, 256), ((32, 64),)),
-    256: ((128, 256), ((32, 64),)),
-    512: ((128, 128), ((64, 128),)),
-    1024: ((128, 128), ((64, 128),)),
-    2048: ((128, 128), ((64, 128),)),
-    4096: ((128, 128), ((64, 128),)),
-    8192: ((128, 128), ((64, 128),)),
+    16: ((128, 256, 32, 64), (128, 256, 32, 32), (256, 256, 32, 32)),
+    32: ((128, 256, 32, 64), (128, 256, 32, 32), (256, 256, 32, 32)),
+    64: ((128, 256, 32, 64), (128, 256, 64, 64)),
+    128: ((128, 256, 32, 64), (256, 256, 32, 64)),
+    256: ((128, 256, 32, 64),),
+    512: ((128, 128, 64, 128),),
+    1024: ((128, 128, 64, 128),),
+    2048: ((128, 128, 64, 128),),
+    4096: ((128, 128, 64, 128),),
+    8192: ((128, 128, 64, 128),),
 }
 
 
 def shared_l2_s2_shape_ok(max_tok: int, BM: int, BN: int, BK: int, SBM: int) -> bool:
     """Is this Stage2 tile validated for the fused shared L2 path at max_tok?"""
-    entry = SHARED_L2_S2_SHAPES.get(int(max_tok))
-    return bool(entry) and (BN, BK) == entry[0] and (BM, SBM) in entry[1]
+    return (BN, BK, BM, SBM) in SHARED_L2_S2_SHAPES.get(int(max_tok), ())
 
 FIXED_SLOT_MAX_MTPR = 255
 MAX_MTPR_CLASS = 32768
