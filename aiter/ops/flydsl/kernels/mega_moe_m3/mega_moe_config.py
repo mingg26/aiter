@@ -70,6 +70,12 @@ class Stage1Config:
     # M tiles per reuse band. Small XCD schedules map bands to canonical
     # GEMM indices; tile-ready schedules use build_fused_gemm1._decode.
     band_m: int = 1
+    # Seed of the per-CTA home queue under xcd_schedule: the physical XCD (the
+    # default, giving B-panel affinity) or the CTA index. Seed only -- every CTA
+    # still visits all eight queues exactly once, so tickets and epochs are
+    # unchanged and the default compiles to the same code object as before.
+    xcd_home: bool = True
+    shared_xcd_home: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +98,12 @@ class Stage2Config:
     schedule_audit: bool = False
     # Compile-time shared L2 task order; ignored when shared L2 is disabled.
     shared_schedule: str = "tail"
+    # Seed of the per-CTA home queue under xcd_schedule: the physical XCD (the
+    # default, giving B-panel affinity) or the CTA index. Seed only -- every CTA
+    # still visits all eight queues exactly once, so tickets and epochs are
+    # unchanged and the default compiles to the same code object as before.
+    xcd_home: bool = True
+    shared_xcd_home: bool = True
 
     def __post_init__(self):
         if self.shared_schedule not in ("tail", "early2"):

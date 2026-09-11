@@ -93,7 +93,8 @@ def compile_mega_moe_stage1(
     fp8_b_waitcnt: bool = False,
     scalar_tile_row_base: bool = False,
     prefetch_a_operand: bool = False,
-    xcd_schedule: bool = False, schedule_audit: bool = False, reset_stage2_queue: bool = False, shared_l13: bool = False, shared_xcd: bool = False,
+    xcd_schedule: bool = False, xcd_home: bool = True, shared_xcd_home: bool = True,
+    schedule_audit: bool = False, reset_stage2_queue: bool = False, shared_l13: bool = False, shared_xcd: bool = False,
 ):
     arch = str(get_rocm_arch() or "")
     if not arch.startswith("gfx95"):
@@ -261,6 +262,7 @@ def compile_mega_moe_stage1(
         + ("_aop1" if prefetch_a_operand else "")
         + ("_trbu1" if scalar_tile_row_base else "")
         + ("_xq1" if xcd_schedule else "")
+        + (("" if xcd_home else "_hr0") + ("" if shared_xcd_home else "_hs0") if xcd_schedule else "")
         + ("_qa1" if schedule_audit else "")
         + ("_sxcd1" if small_xcd else "")
         + ("_slb1" if skip_launch_barrier else "")
@@ -643,7 +645,11 @@ def compile_mega_moe_stage1(
         if const_expr(xcd_schedule):
             # XCD is a locality hint only. Every CTA eventually visits all
             # queues, so sparse placement/migration cannot leave work undone.
-            home_queue = physical_xcd & fx.Int32(7)
+            # The seed picks which queue a CTA starts on; routed and shared can
+            # be seeded independently without changing the rotation itself.
+            home_queue = (physical_xcd if xcd_home else ticket) & fx.Int32(7)
+            if const_expr(shared_xcd_home != xcd_home):
+                shared_home_queue = (physical_xcd if shared_xcd_home else ticket) & fx.Int32(7)
         queue_attempt = fx.Int32(0)
         flags = fx.Int32(0)
         def _decode_xcd(local_work, work_shard):
@@ -684,6 +690,12 @@ def compile_mega_moe_stage1(
         while consumer_active:
             if const_expr(xcd_schedule):
                 work_shard = (home_queue + queue_attempt) & fx.Int32(7)
+                if const_expr(shared_xcd_home != xcd_home):
+                    shared_work_shard = (shared_home_queue + queue_attempt) & fx.Int32(7)
+                else:
+                    shared_work_shard = work_shard
+            else:
+                shared_work_shard = work_shard
             if tid == fx.Int32(0):
                 work = fx.Int32(0)
                 if const_expr(shared_l13):
@@ -695,19 +707,19 @@ def compile_mega_moe_stage1(
                                 # own two panels, queues 4..7 own one. Every
                                 # CTA exhausts each queue exactly once.
                                 shared_small_m = (fuse_mtpr + sort_block_m - 1) // sort_block_m
-                                shared_limit = (work_shard < fx.Int32(4)).select(fx.Int32(2 * shared_small_m), fx.Int32(shared_small_m))
+                                shared_limit = (shared_work_shard < fx.Int32(4)).select(fx.Int32(2 * shared_small_m), fx.Int32(shared_small_m))
                                 shared_period = fx.Int64(shared_limit) + fx.Int64(launch_grid_x)
                                 shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
-                                    shared_count_addr + fx.Int64(work_shard) * fx.Int64(64), fx.Int64(1))) % shared_period)
+                                    shared_count_addr + fx.Int64(shared_work_shard) * fx.Int64(64), fx.Int64(1))) % shared_period)
                                 shared_m = shared_local % fx.Int32(shared_small_m)
-                                shared_n = work_shard + (shared_local // fx.Int32(shared_small_m)) * fx.Int32(8)
+                                shared_n = shared_work_shard + (shared_local // fx.Int32(shared_small_m)) * fx.Int32(8)
                                 shared_claim = (shared_local < shared_limit).select(
                                     shared_m * fx.Int32(N_TILES) + shared_n, total_work + fx.Int32(1))
                             else:
                                 shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
-                                    shared_count_addr + fx.Int64(work_shard) * fx.Int64(64), fx.Int64(1))) % shared_count_period)
+                                    shared_count_addr + fx.Int64(shared_work_shard) * fx.Int64(64), fx.Int64(1))) % shared_count_period)
                                 shared_claim = (shared_local < fx.Int32(shared_tasks_per_queue)).select(
-                                    _decode_xcd(shared_local, work_shard), total_work + fx.Int32(1))
+                                    _decode_xcd(shared_local, shared_work_shard), total_work + fx.Int32(1))
                         else:
                             shared_claim = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(shared_count_addr, fx.Int64(1))) % shared_count_period)
                     if const_expr(shared_xcd):
@@ -886,7 +898,7 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
     joint_work_flags=False,
     preplanned=False,
     payload_chunk_rows=0, payload_tile_ready=False, payload_tile_publish_early=False, band_m=1, swiglu_limit=0.0,
-    swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, xcd_schedule=False, schedule_audit=False, stage2_work_head=0, shared_l13=0, shared_xcd=False):
+    swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, xcd_schedule=False, xcd_home=True, shared_xcd_home=True, schedule_audit=False, stage2_work_head=0, shared_l13=0, shared_xcd=False):
     launch = compile_mega_moe_stage1(
         model_dim=model_dim, inter_dim=inter_dim, rank=rank, experts_per_rank=experts_per_rank,
         fuse_npes=fuse_npes, fuse_topk=fuse_topk, fuse_cap=fuse_cap, fuse_mtpr=fuse_mtpr,
@@ -895,6 +907,7 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
         grid_mult=grid_mult, pipe_weights=pipe_weights, mfma_amajor=mfma_amajor, swizzle_a=swizzle_a,
         async_a_copy=async_a_copy, use_tile_resource=use_tile_resource,
         waves_per_eu_hint=waves_per_eu_hint, num_cu=num_cu, num_dispatch_cu=num_dispatch_cu,
+        xcd_home=xcd_home, shared_xcd_home=shared_xcd_home,
         b_nt=b_nt, work_shards=work_shards, external_grouping=external_grouping,
         external_counting=external_counting, payload_chunk_rows=payload_chunk_rows,
         skip_launch_barrier=skip_launch_barrier,
