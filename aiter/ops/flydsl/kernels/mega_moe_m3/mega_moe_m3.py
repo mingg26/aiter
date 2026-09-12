@@ -25,6 +25,7 @@ from .mega_moe_config import (
     Stage1Config,
     Stage2Config,
     select_mega_moe_config,
+    small_sort_block_m,
 )
 from .quant import per_1x32_mx_quant
 
@@ -149,6 +150,8 @@ class MegaMoEM3:
             # The stride Stage1 divides the local batch by, taken from the one table
             # in mega_moe_config so it cannot drift from the selector's sort block.
             shared_tile_m = SHARED_SMALL_SORT_BLOCK_M.get(self.mtpr, 128)
+            assert shared_tile_m == (small_sort_block_m(self.mtpr) if self.mtpr in SHARED_FUSED_MTPR_SMALL else 128), (
+                f"row table stride {shared_tile_m} disagrees with the selector's sort block")
             # Stage1 divides the local batch by its sort block to count shared
             # tiles, so it is given this stride and asserts the two agree.
             self._shared_row_stride = shared_tile_m
@@ -333,13 +336,14 @@ class MegaMoEM3:
             experts_per_rank=self.epr,
             model_dim=self.model_dim,
             inter_dim=self.inter_dim,
+            fixed_slot=self._s1_fixed_slot,
         )
         # Shared small batches reuse the measured T256 geometry and preplan4.
         # This is a validated inherited configuration, not a per-size tuning claim.
         small_shared = (self._shared_l13 is not None
             and (self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk)
             == (8, 16, 6144, 3072, 4)
-            and tokens in (16, 32, 64, 96, 128) and self.mtpr == tokens)
+            and tokens in SHARED_FUSED_MTPR_SMALL and tokens != 256 and self.mtpr == tokens)
         # Measured EP8 M3 T256 configuration: P1, P2a, P2b and early B prefetch.
         # Retain the launch barrier; removing it with P1 showed no extra gain.
         if (((self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk,
@@ -375,7 +379,11 @@ class MegaMoEM3:
             #     re-read multiplier model_dim/block_n is 48 against 24, and 96's
             #     sort block of 32 against ~24 rows per expert leaves the most
             #     padding of any small size.
-            s2_block_n = 256 if tokens in (16, 32, 96, 128) else 128
+            # 128 only where a wider panel is unavailable or measured worse: at 64
+            # tokens BM=64 with BN=256 exceeds the workgroup LDS, and at 256 the
+            # wider panel lost 2.5%. Everything else takes 256, which halves how
+            # often Stage2 re-reads its A2 panel.
+            s2_block_n = 128 if tokens in (64, 256) else 256
             config = MegaMoEConfig(
                 stage1=Stage1Config(
                     sort_block_m=sort_block_m, tile_n=512, tile_k=256, num_waves=8,

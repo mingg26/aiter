@@ -155,17 +155,21 @@ def compile_mega_moe_stage1(
             # checks directly instead of assuming a 64-row stride.
             assert sort_block_m in (32, 64)
             # The real invariant is that MegaMoEM3's shared row table and the tile
-            # count below index the same blocks. The count takes a ceiling only while
-            # the whole local batch is smaller than one sort block; above that it
-            # divides, so a larger batch must also be a multiple. Asserting only the
-            # divisibility is not enough: the table's stride is chosen by MegaMoEM3,
-            # and (mtpr 128, sort_block_m 32) divides while the table still holds two
-            # 64-row entries, which would read past it. So the stride comes in and is
-            # checked against what this kernel will actually divide by.
+            # count below index the same blocks. Both now take a ceiling, so a batch
+            # the sort block does not divide is served by a short last tile rather
+            # than rejected. The stride still has to match: the table's stride is
+            # chosen by MegaMoEM3, and (mtpr 128, sort_block_m 32) would give four
+            # tiles here while the table holds two 64-row entries, which reads past
+            # it. So the stride comes in and is checked against what this kernel
+            # counts with.
             assert shared_row_stride is None or int(shared_row_stride) == sort_block_m, (
                 f'shared row table strides by {shared_row_stride}, Stage1 divides by {sort_block_m}')
-            assert int(fuse_mtpr) <= sort_block_m or int(fuse_mtpr) % sort_block_m == 0, (
-                f'{fuse_mtpr} local tokens need a sort block that divides them, got {sort_block_m}')
+            # Eight rows is the granularity the short-tail bounds are written for:
+            # Stage2's shared panel bound and this kernel's row table both address
+            # whole tokens, and the combine grid search needs mtpr % 8 == 0 to find
+            # an exact warp partition per token.
+            assert int(fuse_mtpr) % 8 == 0, (
+                f'{fuse_mtpr} local tokens must be a multiple of eight')
         else:
             assert int(fuse_mtpr) in SHARED_FUSED_MTPR_LARGE, (
                 f"fused shared L13 has no validated regime for {fuse_mtpr} local tokens")
@@ -205,7 +209,7 @@ def compile_mega_moe_stage1(
             # count -- it maps tickets to canonical m*N_TILES+n indices and the m
             # tile count comes from num_valid at run time -- so this list records
             # which sizes have been measured, not what the decoder can do.
-            assert fuse_mtpr in (16, 32, 64, 96, 128, 256, 512, 1024)
+            assert int(fuse_mtpr) % 8 == 0 and int(fuse_mtpr) <= 1024
             assert not fixed_slot_dispatch
         else:
             assert N_TILES % 8 == 0 and payload_tile_ready and BAND_M > 1
@@ -327,6 +331,14 @@ def compile_mega_moe_stage1(
         + ("_shu1" if shared_l13 else "")
         + ("_shna2" if shared_l13 else "")
         + ("_shsmall1" if shared_l13 and small_xcd else "")
+        # A batch larger than its sort block that the block does not divide counts
+        # shared tiles with a ceiling and carries a short last tile. That changes
+        # the code object, so it belongs in the name: the A-read bounds above were
+        # once plumbed into a kernel that compiled identically and passed every
+        # gate. Batches below one sort block already took the ceiling, and keep
+        # the name they have.
+        + ("_sct1" if shared_l13 and int(fuse_mtpr) > sort_block_m
+           and int(fuse_mtpr) % sort_block_m != 0 else "")
     )
 
     @flyc.kernel(name=kernel_name, known_block_size=[TOTAL_THREADS, 1, 1])
@@ -592,7 +604,14 @@ def compile_mega_moe_stage1(
                 x, w_rsrc, sw_rsrc, sx_rsrc, out_rsrc, os_rsrc, trb_rsrc, expert_rsrc, out,
                 tvr_buf=tvr_rsrc, sx_addr=fx.Int64(fx.ptrtoint(fx.get_iter(scale_x))))
         else:
-            if const_expr(fuse_mtpr < sort_block_m):
+            # A batch the sort block divides keeps the plain division it has always
+            # compiled; anything else -- a batch smaller than one block, or one with
+            # a short last tile -- takes the ceiling, which is what MegaMoEM3's row
+            # table (mega_moe_m3.py) and shared_tasks_per_queue below already use.
+            # Counting one tile short here does not lose work quietly: is_shared is
+            # `uniform_work < shared_work`, so the missing tile's tasks would be run
+            # as routed ones against the routed tables.
+            if const_expr(int(fuse_mtpr) % sort_block_m != 0):
                 shared_m_tiles = (i32_cur_tok + fx.Int32(sort_block_m - 1)) // fx.Int32(sort_block_m)
             else:
                 shared_m_tiles = i32_cur_tok // fx.Int32(sort_block_m)

@@ -37,7 +37,11 @@ P2P_FP8_MIN_MTPR = 1024
 # npes*T*topk/experts, i.e. exactly 128 at T=512 and a multiple of 128 above it,
 # which is what lets the 128-row sort block and the 128-row shared row table in
 # MegaMoEM3 divide evenly at every large size.
-SHARED_FUSED_MTPR_SMALL = (16, 32, 64, 96, 128, 256)
+# Every multiple of eight up to 256. Stage1 counts shared tiles with a ceiling
+# and bounds the short last one, so the local batch no longer has to be a
+# multiple of the sort block; see the tile count in mega_moe_stage1 and the
+# _sct1 tag that marks the kernels which take that path.
+SHARED_FUSED_MTPR_SMALL = tuple(range(8, 257, 8))
 
 # Stage1's sort block per small-regime size, and the stride of the shared row
 # table MegaMoEM3 builds. One table because Stage1 divides the local batch by the
@@ -48,7 +52,42 @@ SHARED_FUSED_MTPR_SMALL = (16, 32, 64, 96, 128, 256)
 # the whole local batch is smaller than one sort block; above that it divides, so
 # the batch must be a multiple of the sort block. 96 % 64 != 0 would drop the
 # third tile, while 96 = 3 * 32 is exact and needs no partial-tile handling.
-SHARED_SMALL_SORT_BLOCK_M = {16: 32, 32: 32, 64: 64, 96: 32, 128: 64, 256: 64}
+def small_sort_block_m(mtpr: int) -> int:
+    """Stage1's sort block for a small-regime batch, and the stride of the shared
+    row table MegaMoEM3 builds from it.
+
+    The block has to be large enough to hold a whole expert's rows, not merely
+    large enough to be efficient. Stage1 pads each expert up to a multiple of the
+    block, so its tile count is sum_e ceil(rows_e / block), and rows_e is random:
+    its mean is tokens/4 at EP8 top4 with 128 experts, with a standard deviation
+    near its square root. When the mean sits within a couple of deviations of the
+    block, whether an expert needs a second tile is close to a coin flip, and the
+    per-rank tile count stops being the same on every rank. Each tile makes a
+    full pass over that expert's 37.7 MB of GEMM1 weights, so the tile count is
+    what Stage1 costs, and the layer runs at the slowest rank.
+
+    Measured at 104 tokens, where the mean is 26 rows against a 32-row block: the
+    eight ranks took 17, 19, 18, 19, 19, 17, 17 and 17 tiles, Stage1 ran 155 us on
+    the four low ranks and 191 us on the four high ones, and the complete path was
+    313.2 us. A 64-row block holds every expert in one tile, gives all eight ranks
+    16 tiles, flattens Stage1 to 152-159 us and takes the path to 290.0 us -- and
+    it does that while computing nearly twice the padded rows, because the padded
+    rows carry no memory traffic (their reads and writes are bounded) and Stage1
+    is nowhere near the matrix pipe's limit.
+
+    So 64 from 104 tokens up, where the mean is 26 rows or more, and 32 below,
+    where a 64-row tile would be three-quarters empty and the padding stops being
+    free (32 is worth 1.7% at 16 tokens and 6.8% at 32). The rule reproduces every
+    previously measured entry: 32 at 16 and 32, 64 at 64, 32 at 96, 64 at 128 and
+    256. At 200 the same boundary reappears one level up -- the mean is 50 rows
+    and the ranks take 16, 17, 16, 16, 18, 16, 16, 16 tiles, Stage1 spreads 19%
+    and the path costs 20 us more than at 192 -- so a 128-row block is the next
+    thing to measure there.
+    """
+    return 64 if (mtpr % 64 == 0 or mtpr > 96) else 32
+
+
+SHARED_SMALL_SORT_BLOCK_M = {t: small_sort_block_m(t) for t in SHARED_FUSED_MTPR_SMALL}
 SHARED_FUSED_MTPR_LARGE = (512, 1024, 2048, 4096, 8192)
 SHARED_FUSED_MTPR = SHARED_FUSED_MTPR_SMALL + SHARED_FUSED_MTPR_LARGE
 
@@ -101,6 +140,19 @@ SHARED_L2_S2_SHAPES = {
     4096: ((128, 128, 64, 128),),
     8192: ((128, 128, 64, 128),),
 }
+
+# The sizes between the measured ones take the same tile their neighbours were
+# measured with: BM=32 under a BK=256 skeleton, SBM following Stage1's sort
+# block, and both BN values listed so the selector may emit either. max_tok
+# enters the shared queue only through ceil(max_tok / BM), and band_m=8 rounds
+# that up to the same eight m blocks for every batch at or below 256, so these
+# sizes share the epoch period of the 96, 128 and 256 entries already validated
+# here -- unlike a new BN, which would change the period itself.
+for _t in SHARED_FUSED_MTPR_SMALL:
+    if _t not in SHARED_L2_S2_SHAPES:
+        _sbm = SHARED_SMALL_SORT_BLOCK_M[_t]
+        SHARED_L2_S2_SHAPES[_t] = ((128, 256, 32, _sbm), (256, 256, 32, _sbm))
+del _t, _sbm
 
 
 def shared_l2_s2_shape_ok(max_tok: int, BM: int, BN: int, BK: int, SBM: int) -> bool:
@@ -535,6 +587,7 @@ def select_mega_moe_config(
     experts_per_rank: int = REFERENCE_EXPERTS_PER_RANK,
     model_dim: int = 7168,
     inter_dim: int = 3072,
+    fixed_slot: bool | None = None,
 ) -> MegaMoEConfig:
     # mtpr_config_class thresholds and nearest_token_bucket bisects, so nothing
     # below this point depends on mtpr being a power of two.
@@ -548,9 +601,15 @@ def select_mega_moe_config(
         raise ValueError(f"invalid model shape {model_dim}x{inter_dim}")
     bucket = nearest_token_bucket(tokens)
     mtpr_class = mtpr_config_class(mtpr)
-    if mtpr_class <= FIXED_SLOT_MAX_MTPR and bucket > 128:
+    # Whether the caller runs the fixed-slot dispatch layout is the caller's own
+    # decision (MegaMoEM3 takes the compact one for every fused-shared batch, at
+    # any mtpr). Inferring it from mtpr alone was right only while every batch at
+    # or below 255 was fixed-slot: it rejects 192 and 200, whose nearest bucket is
+    # 256, before the fused-shared path can claim them.
+    is_fixed_slot = (mtpr_class <= FIXED_SLOT_MAX_MTPR) if fixed_slot is None else fixed_slot
+    if is_fixed_slot and bucket > 128:
         raise ValueError(f"fixed-slot does not support token bucket {bucket}")
-    if mtpr_class <= FIXED_SLOT_MAX_MTPR and experts_per_rank > 64:
+    if is_fixed_slot and experts_per_rank > 64:
         raise ValueError("fixed-slot supports at most 64 experts per rank")
     config = _select_bucket_config(
         bucket, mtpr_class, expert_config_class(experts_per_rank), model_dim, inter_dim

@@ -373,7 +373,14 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         assert shared_l2_s2_shape_ok(max_tok, BM, BN, BK, SBM), (
             f"fused shared L2 has no validated Stage2 tile for max_tok={max_tok} "
             f"BM={BM} BN={BN} BK={BK} SBM={SBM}")
-        assert persist and xcd_schedule and band_m > 1 and max_tok % 16 == 0
+        # Eight, not sixteen: the sixteen was the greatest common divisor of the
+        # sizes this path was first offered at, left behind when the shared queue
+        # moved to ceil(max_tok / BM) arithmetic (it replaced max_tok % (BM *
+        # band_m) == 0, the invariant that ceiling retired). Nothing in Stage2
+        # needs a sixteen-row granule: the queue and ticket maths are ceilings,
+        # the short last tile is bounded by shared_a_tile_bytes, and the epilogue
+        # store is bounded by num_records.
+        assert persist and xcd_schedule and band_m > 1 and max_tok % 8 == 0
         assert p2p_quant_type == "none" and not has_pad
     shared_early2 = shared_l2 and shared_schedule == "early2"
     if shared_early2:
