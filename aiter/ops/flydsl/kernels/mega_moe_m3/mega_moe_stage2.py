@@ -382,6 +382,12 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         # store is bounded by num_records.
         assert persist and xcd_schedule and band_m > 1 and max_tok % 8 == 0
         assert p2p_quant_type == "none" and not has_pad
+    # Compact sort blocks contain real rows, but splitting SBM into smaller BM
+    # tiles can leave a whole routed subtile empty. Limit this fast path to the
+    # measured sizes; equal-size tiles need no test, and local reduction has
+    # epilogue counters that must not be skipped.
+    skip_empty = (shared_l2 and not local_reduce and BM < SBM
+                  and max_tok in (104, 112, 128, 160, 168, 176, 184, 192, 200, 256))
     shared_early2 = shared_l2 and shared_schedule == "early2"
     if shared_early2:
         # The early2 schedule is validated on two operating points: the small
@@ -446,6 +452,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         + ("_a2s1" if max_tok % BM else "")
         + ("_lr1" if local_reduce else "")
         + ("_xl1" if local_reduce_xcd_local else "")
+        + ("_ez1" if skip_empty else "")
         + (f"_qm{band_m}_xq{int(xcd_schedule)}" if band_m > 1 else "")
         + ((("" if xcd_home else "_hr0") + ("" if shared_xcd_home else "_hs0")) if band_m > 1 and xcd_schedule else "")
         + (f"_qa{int(schedule_audit)}_qg{queue_grid_mult}" if band_m > 1 else "")
@@ -715,7 +722,14 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
                                 fx.ptr_store(physical_xcd + fx.Int32(1), global_typed_ptr(audit_addr + fx.Int64(4), T.i32))
                                 fx.ptr_store((home == queue).select(fx.Int32(1), fx.Int32(0)), global_typed_ptr(audit_addr + fx.Int64(8), T.i32))
                         if const_expr(shared_l2):
-                            run_unit(unit_bx, m_block, shared_active)
+                            if const_expr(skip_empty):
+                                # Keep every claim and queue visit, including shared epochs.
+                                # An empty routed tile has no valid scatter destinations.
+                                has_rows = shared_active | (routed_a_tile_bytes(m_block * fx.Int32(BM)) > fx.Int64(0))
+                                if has_rows:
+                                    run_unit(unit_bx, m_block, shared_active)
+                            else:
+                                run_unit(unit_bx, m_block, shared_active)
                         else:
                             issue_all_a_loads(m_block * fx.Int32(BM))
                             rocdl.sched_barrier(0)
