@@ -90,8 +90,8 @@ SHARED_L2_S2_SHAPES = {
     32: ((128, 256, 32, 64), (128, 256, 32, 32), (256, 256, 32, 32)),
     64: ((128, 256, 32, 64), (128, 256, 64, 64)),
     # 96 mirrors 16/32: SBM follows Stage1's 32-row sort block. Both BN values are
-    # listed, but _select_config emits 128 here, so BN=256 is reachable only by a
-    # sweep that passes the config explicitly -- it is not a selector default.
+    # listed and BN=256 is now the selector default, measured: 273.566 us against
+    # 282.025 at BN=128, two interleaved pairs with no overlap.
     96: ((128, 256, 32, 32), (256, 256, 32, 32)),
     128: ((128, 256, 32, 64), (256, 256, 32, 64)),
     256: ((128, 256, 32, 64),),

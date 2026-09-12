@@ -364,12 +364,18 @@ class MegaMoEM3:
             sort_block_m = SHARED_SMALL_SORT_BLOCK_M[tokens]
             s2_block_m = 64 if tokens == 64 else 32
             #   stage2.block_n: 256 halves how often Stage2 re-reads its A2 panel
-            #     and is the measured optimum at 16, 32 and 128 (0.6-1.0% on the
+            #     and is the measured optimum at 16, 32, 96 and 128 (0.6-1.0% on the
             #     complete path, direction reproduced over 6+2+2 paired runs). It
             #     loses 2.5% at 256, and at 64 it would force block_m back to 32
             #     because BM=64 with BN=256 exceeds the 64 KB workgroup LDS, giving
             #     up more than it wins. SHARED_L2_S2_SHAPES admits exactly these.
-            s2_block_n = 256 if tokens in (16, 32, 128) else 128
+            #     96 is the widest margin of the four: 282.025 us at 128 versus
+            #     273.566 at 256, two interleaved pairs, ranges [281.753,282.297]
+            #     and [271.048,276.083], no overlap. It pays twice there -- the
+            #     re-read multiplier model_dim/block_n is 48 against 24, and 96's
+            #     sort block of 32 against ~24 rows per expert leaves the most
+            #     padding of any small size.
+            s2_block_n = 256 if tokens in (16, 32, 96, 128) else 128
             config = MegaMoEConfig(
                 stage1=Stage1Config(
                     sort_block_m=sort_block_m, tile_n=512, tile_k=256, num_waves=8,
