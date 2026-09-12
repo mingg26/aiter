@@ -61,6 +61,9 @@ class DispatchSlot(IntEnum):
     PAYLOAD_BLOCKS_PER_DESTINATION = 41
     PAYLOAD_CHUNKS_PER_DESTINATION = 42
     SCHEDULE_AUDIT = 43
+    # Valid (non-padding) rows in each Stage1 sort block, one int32 per tile,
+    # so GEMM1 can bound its A read to the rows that carry a token.
+    TILE_VALID_ROWS = 44
 
 
 DISPATCH_TABLE_SIZE = max(DispatchSlot) + 1
@@ -153,6 +156,7 @@ def _configure_payload_geometry(
 def _store_expert_metadata(
     addr_sorted_expert,
     addr_tile_row_base,
+    addr_tile_valid_rows,
     addr_srcmap,
     ge,
     local_row_base,
@@ -167,6 +171,7 @@ def _store_expert_metadata(
     crfa = buffer_ops.create_buffer_resource_from_addr
     sorted_expert = crfa(addr_sorted_expert)
     tile_row_base = crfa(addr_tile_row_base)
+    tile_valid_rows = crfa(addr_tile_valid_rows)
     if const_expr(padding_uniform_srcmap):
         # All active expert lanes use the same local SRCMAP table entry.
         # Make this invariant explicit once, outside the divergent row loop.
@@ -178,6 +183,14 @@ def _store_expert_metadata(
         buffer_ops.buffer_store(ge, sorted_expert, metadata_index)
         buffer_ops.buffer_store(
             local_row_base + tile * fx.Int32(fz_tile_m), tile_row_base, metadata_index
+        )
+        # An expert's last tile is short whenever its row count is not a whole number
+        # of sort blocks, which random routing makes the common case. Recording the
+        # real height is what lets GEMM1 stop reading the padding.
+        remaining = total_count - tile * fx.Int32(fz_tile_m)
+        buffer_ops.buffer_store(
+            (remaining > fx.Int32(fz_tile_m)).select(fx.Int32(fz_tile_m), remaining),
+            tile_valid_rows, metadata_index
         )
     padding = padded_rows - total_count
     for pad in range(fx.Int32(0), padding, 1):
@@ -635,6 +648,7 @@ def emit_dispatch_plan(
                 _store_expert_metadata(
                     a_se,
                     a_trb,
+                    dp(DispatchSlot.TILE_VALID_ROWS),
                     a_sm,
                     ge,
                     local_row_base,

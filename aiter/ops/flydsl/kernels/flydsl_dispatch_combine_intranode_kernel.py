@@ -475,8 +475,10 @@ def make_combine_kernel(
     if prefetch_local_epr:
         if not (shared_input and not local_reduce_epr and npes == 8
                 and experts_per_token == 4 and prefetch_local_epr == 16
-                and hidden_dim == 6144 and max_tok_per_rank in (16, 32, 64, 128, 256)):
-            raise ValueError("local prefetch requires EP8/top4/H6144/T16/32/64/128/256 shared BF16 combine")
+                and hidden_dim == 6144 and max_tok_per_rank in (16, 32, 64, 96, 128, 256)):
+            # The token list records the measured sizes; the partition this path
+            # actually needs is checked right below, against the launch geometry.
+            raise ValueError("local prefetch requires EP8/top4/H6144/T16/32/64/96/128/256 shared BF16 combine")
         prefetch_warps_per_tok = block_num * warp_num_per_block // max_tok_per_rank
         if max_tok_per_rank < 64:
             # Retain the resident CTA grid; excess token warps use bounded no-op accesses.

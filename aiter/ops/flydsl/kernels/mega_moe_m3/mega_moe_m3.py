@@ -17,6 +17,7 @@ from .dispatch import DISPATCH_TABLE_SIZE, DispatchSlot
 from .mega_moe_config import (
     FIXED_SLOT_MAX_MTPR,
     SHARED_FUSED_MTPR,
+    SHARED_SMALL_SORT_BLOCK_M,
     SHARED_FUSED_MTPR_LARGE,
     SHARED_FUSED_MTPR_SMALL,
     _STAGE1_OVERRIDE_ENV,
@@ -28,6 +29,38 @@ from .mega_moe_config import (
 from .quant import per_1x32_mx_quant
 
 __all__ = ["MegaMoEM3"]
+
+
+def _combine_grid_for(mtpr: int, for_prefetch: bool) -> dict:
+    """Combine launch geometry, only where the default one cannot serve this batch.
+
+    The local-prefetch combine splits a fixed grid across tokens and rejects a
+    partition that is not exact: it needs block_num * warp_num_per_block to be a
+    multiple of mtpr, at least two warps per token, and hidden/2 to divide evenly
+    among them. That check lives next to the launch geometry it judges, in
+    flydsl_dispatch_combine_intranode_kernel.py's prefetch_local_epr block (the
+    raise reading "needs an exact, bounded warp partition per token"). The default
+    128 x 8 = 1024 warps divides every size the prefetch path is offered at (16
+    through 256) and not 96, so a non-power-of-two size needs a grid it divides.
+    The loop below takes the largest servable block_num, which for 96 is 192, i.e.
+    1536 warps and sixteen per token. Powers of two keep the default untouched.
+
+    The hidden dimension is pinned to 6144 because that is the only shape the
+    prefetch path accepts; a different model_dim would need this recomputed.
+    """
+    if mtpr & (mtpr - 1) == 0 or not for_prefetch:
+        # A power of two divides the default grid, and without the shared input there
+        # is no prefetch combine to satisfy, so pinning a grid would only narrow the
+        # geometry the tuner may pick for the ordinary combine.
+        return {}
+    for block_num in range(min(256, mtpr * 2), 0, -1):
+        warps = block_num * 8
+        if warps % mtpr:
+            continue
+        per_token = warps // mtpr
+        if per_token >= 2 and (6144 // 2) % (64 * per_token) == 0:
+            return dict(combine_block_num=block_num, combine_warp_num_per_block=8)
+    raise ValueError(f"no combine grid divides mtpr={mtpr}")
 
 
 class MegaMoEM3:
@@ -42,8 +75,15 @@ class MegaMoEM3:
     # fmt: on
         if experts % world_size != 0:
             raise ValueError(f"experts={experts} must be divisible by world_size={world_size}")
-        if max_tok_per_rank <= 0 or max_tok_per_rank & (max_tok_per_rank - 1):
-            raise ValueError(f"max_tok_per_rank={max_tok_per_rank} must be a power of two")
+        if max_tok_per_rank <= 0:
+            raise ValueError(f"max_tok_per_rank={max_tok_per_rank} must be positive")
+        # Stage2's routed epilog divides for a non-power-of-two batch, but the
+        # local-reduce staging still splits the encoding with a shift and a mask, so
+        # it stays power-of-two only. Reject the combination here rather than at the
+        # first Stage2 launch, which is after Stage1 has allocated and compiled.
+        if (local_reduce or local_reduce_xcd_local) and max_tok_per_rank & (max_tok_per_rank - 1):
+            raise ValueError(
+                f"local reduction requires a power-of-two max_tok_per_rank, got {max_tok_per_rank}")
         self.local_reduce = bool(local_reduce)
         self.local_reduce_xcd_local = bool(local_reduce_xcd_local)
         if self.local_reduce_xcd_local and not self.local_reduce:
@@ -81,7 +121,8 @@ class MegaMoEM3:
             num_experts_per_token=self.topk, combine_dtype=torch.bfloat16,
             dispatch_dtype=torch.float8_e4m3fn, scale_dim=self._s1_scale_dim, scale_type_size=1,
             enable_std_moe=False, enable_group_major=True, gm_unit_size=capacity_tile_m,
-            gm_scheme=mega_scheme, gm_compact=compact, max_total_recv_tokens=self.world_size)
+            gm_scheme=mega_scheme, gm_compact=compact, max_total_recv_tokens=self.world_size,
+            **_combine_grid_for(self.mtpr, shared_w13 is not None))
         # fmt: on
         self.comb_op = FlyDSLDispatchCombineIntraNodeOp(self.comb_cfg)
         torch.cuda.synchronize()
@@ -105,14 +146,25 @@ class MegaMoEM3:
             self._shared_w13_scale = shared_w13_scale.contiguous().view(torch.uint8)
             self._shared_a2 = torch.empty((self.mtpr, self.inter_dim), device=self.dev, dtype=torch.float8_e4m3fn)
             self._shared_a2_scale = torch.empty(self.mtpr * (self.inter_dim // 32) + 8192, device=self.dev, dtype=torch.uint8)
-            shared_tile_m = 64 if self.mtpr <= 256 else 128
+            # The stride Stage1 divides the local batch by, taken from the one table
+            # in mega_moe_config so it cannot drift from the selector's sort block.
+            shared_tile_m = SHARED_SMALL_SORT_BLOCK_M.get(self.mtpr, 128)
+            # Stage1 divides the local batch by its sort block to count shared
+            # tiles, so it is given this stride and asserts the two agree.
+            self._shared_row_stride = shared_tile_m
             self._shared_rows = torch.arange((self.mtpr + shared_tile_m - 1) // shared_tile_m, device=self.dev, dtype=torch.int32) * shared_tile_m
             self._shared_experts = torch.full_like(self._shared_rows, self.rank * self.epr)
+            # Same contract as the routed tile_valid_rows, so one GEMM1 bound serves
+            # both task kinds: dense tiles except a short last one.
+            self._shared_valid_rows = (self._shared_rows.new_full(
+                self._shared_rows.shape, shared_tile_m).minimum(
+                    torch.full_like(self._shared_rows, self.mtpr) - self._shared_rows))
             # Separate cache lines for the eight shared XCD queue heads.
             self._shared_task_count = torch.zeros(8 * 8, device=self.dev, dtype=torch.int64)
             self._shared_l13 = torch.tensor([t.data_ptr() for t in (
                 self._shared_w13, self._shared_w13_scale, self._shared_a2,
-                self._shared_a2_scale, self._shared_rows, self._shared_experts, self._shared_task_count)], device=self.dev, dtype=torch.int64)
+                self._shared_a2_scale, self._shared_rows, self._shared_experts, self._shared_task_count,
+                self._shared_valid_rows)], device=self.dev, dtype=torch.int64)
 
         self._shared_l2 = None
         if (shared_w2 is None) != (shared_w2_scale is None):
@@ -151,6 +203,12 @@ class MegaMoEM3:
             op.max_blocks = metadata_blocks
             op.sorted_expert_ids = torch.zeros(metadata_blocks, dtype=torch.int32, device=self.dev)
             op.tile_row_base = torch.zeros(metadata_blocks, dtype=torch.int32, device=self.dev)
+        # Outside the branch on purpose. The group-major op allocates its own tables at
+        # its unit size, which on the fixed-slot path equals this metadata granularity,
+        # so the branch above is never taken there -- and tile_valid_rows is new here,
+        # so it has to be created either way or the table write below raises.
+        if getattr(op, 'tile_valid_rows', None) is None or op.tile_valid_rows.numel() < op.max_blocks:
+            op.tile_valid_rows = torch.zeros(op.max_blocks, dtype=torch.int32, device=self.dev)
         self._s1_nvm = op.num_valid_max
         self._s1_cap = op.ll_cap
         self._s1_epoch_parity = torch.zeros(1, dtype=torch.int32, device=self.dev)
@@ -223,6 +281,7 @@ class MegaMoEM3:
         table[DispatchSlot.P2P_SRCMAP] = op.p2p_srcmap_em.data_ptr()
         table[DispatchSlot.SORTED_EXPERT] = op.sorted_expert_ids.data_ptr()
         table[DispatchSlot.TILE_ROW_BASE] = op.tile_row_base.data_ptr()
+        table[DispatchSlot.TILE_VALID_ROWS] = op.tile_valid_rows.data_ptr()
         table[DispatchSlot.NUM_VALID] = op.num_valid.data_ptr()
         table[DispatchSlot.SRCMAP] = op.srcmap_em.data_ptr()
         table[DispatchSlot.LOCAL_HIST] = workspace["local_hist"].data_ptr()
@@ -280,7 +339,7 @@ class MegaMoEM3:
         small_shared = (self._shared_l13 is not None
             and (self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk)
             == (8, 16, 6144, 3072, 4)
-            and tokens in (16, 32, 64, 128) and self.mtpr == tokens)
+            and tokens in (16, 32, 64, 96, 128) and self.mtpr == tokens)
         # Measured EP8 M3 T256 configuration: P1, P2a, P2b and early B prefetch.
         # Retain the launch barrier; removing it with P1 showed no extra gain.
         if (((self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk,
@@ -293,15 +352,16 @@ class MegaMoEM3:
             # Against the standalone path: 1.05x at 16, 1.15x at 32, 1.25x at
             # 64, 1.47x at 128, 1.49x at 256 tokens. The 256-token settings
             # this used to emit for every size are 0.94x at 16 tokens.
-            #   sort_block_m: a 32-row sort block needs the local batch to fit
-            #     one shared tile, which holds at 16 and 32 tokens only.
+            #   sort_block_m: from SHARED_SMALL_SORT_BLOCK_M, which is also the
+            #     shared row table's stride. 32 wherever the local batch is a
+            #     multiple of it and the smaller block was measured better.
             #   stage2.use_nt: a non-temporal B load pays off when
             #     sort_block_m // block_m == 1 gives each B panel one consumer.
             #     That also holds at 16 tokens, where the gain measured flat.
             # Fused shared requires preplanning (Stage1 asserts it), so the
             # 256-token entry keeps preplan_waves=0 only on the unfused path.
             fused_shared = self._shared_l13 is not None
-            sort_block_m = 32 if tokens in (16, 32) else 64
+            sort_block_m = SHARED_SMALL_SORT_BLOCK_M[tokens]
             s2_block_m = 64 if tokens == 64 else 32
             #   stage2.block_n: 256 halves how often Stage2 re-reads its A2 panel
             #     and is the measured optimum at 16, 32 and 128 (0.6-1.0% on the
@@ -511,6 +571,7 @@ class MegaMoEM3:
             swiglu_limit=self.swiglu_limit, swiglu_alpha=self.swiglu_alpha,
             swiglu_beta=self.swiglu_beta, stage2_work_head=stage2_work_head,
             shared_l13=0 if self._shared_l13 is None else self._shared_l13.data_ptr(),
+            shared_row_stride=getattr(self, '_shared_row_stride', None),
             shared_xcd=self._shared_l13 is not None and self._shared_xcd_schedule)
         # fmt: on
         self._s2_topk_ids = topk_ids
@@ -703,7 +764,8 @@ class MegaMoEM3:
             fx.Int64(op.sorted_expert_ids.data_ptr()), fx.Int64(op.num_valid.data_ptr()),
             fx.Int64(self._s1_dispatch_workspace["max_expert_tiles"].data_ptr()),
             fx.Int64(op.srcmap_em.data_ptr()), fx.Int64(op.wts_em.data_ptr()),
-            fx.Int64(op.tile_row_base.data_ptr()), comb_op._fx_p2p_comb_inp, self._s1_nvm,
+            fx.Int64(op.tile_row_base.data_ptr()), fx.Int64(op.tile_valid_rows.data_ptr()),
+            comb_op._fx_p2p_comb_inp, self._s1_nvm,
             self._g2v2_inter, self._g2v2_hidden, s_fx, BM=stage2.block_m,
             SBM=config.stage1.sort_block_m, BN=stage2.block_n, BK=stage2.block_k,
             use_nt=stage2.use_nt, g2_bhoist=stage2.b_hoist,

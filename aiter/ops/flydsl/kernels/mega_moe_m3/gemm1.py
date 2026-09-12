@@ -52,6 +52,7 @@ class _SplitABuffer:
 def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_scale, a_scale, mfma, epi, a_buf,
     a_scale_lds, a_lds_i32, K_ITERS, M_REPEAT, NUM_ACC_N, A_K_STEP_BYTES, pipe_weights,
     mfma_amajor, async_a_copy, trb_rsrc, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, scalar_tile_row_base=False,
+    tvr_rsrc=None, tvr_row_bytes=0,
     wait_payload=None, work=None):
 # fmt: on
     N_ACC = M_REPEAT * NUM_ACC_N
@@ -63,6 +64,14 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
     SB_STATE_END = B_STATE_END + NUM_B_SCALE
     last = fx.Int32(K_ITERS - 1)
     tile_row_base = _buffer_load(trb_rsrc, m_tile, fx.Int32)
+    a_tile_bound = None
+    a_valid_rows = None
+    if const_expr(tvr_rsrc is not None):
+        # This tile's real height. num_records must be wave-uniform or the descriptor
+        # waterfalls, and every lane of a wave works the same m_tile, so read it once.
+        a_valid_rows = fx.Int32(rocdl.readfirstlane(
+            T.i32, _buffer_load(tvr_rsrc, m_tile, fx.Int32).ir_value()))
+        a_tile_bound = a_valid_rows * fx.Int32(tvr_row_bytes)
     if const_expr(scalar_tile_row_base):
         # Every active lane executes the same scheduled M tile. Keep its buffer
         # base scalar so direct-to-LDS loads need no descriptor waterfall.
@@ -74,7 +83,7 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
         b0 = b_loader.load_step(b_row, fx.Int32(0))
         sb0 = b_scale.load_step(b_row, fx.Int32(0))
         wait_payload(work)
-    a_gather.for_tile(tile_row_base)
+    a_gather.for_tile(tile_row_base, a_tile_bound)
     if const_expr(pipe_weights):
         if const_expr(async_a_copy):
             a_gather.prefetch_to_lds(
@@ -88,7 +97,7 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
                 a_gather.load_regs(fx.Int32(0)),
                 fx.Int32(0),
             )
-        a_scale.stage(a_scale_lds, tile_row_base)
+        a_scale.stage(a_scale_lds, tile_row_base, a_valid_rows)
         wait_lds_barrier(0 if async_a_copy else 63)
         if const_expr(wait_payload is None):
             b0 = b_loader.load_step(b_row, fx.Int32(0))
@@ -289,7 +298,7 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
                 a_gather.load_regs(fx.Int32(0)),
                 fx.Int32(0),
             )
-        a_scale.stage(a_scale_lds, tile_row_base)
+        a_scale.stage(a_scale_lds, tile_row_base, a_valid_rows)
         wait_lds_barrier(0 if async_a_copy else 63)
         init = [mfma.zero_value for _ in range(N_ACC)]
         if const_expr(unroll_a_pingpong):
@@ -377,6 +386,7 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
 # fmt: off
 def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
     out_rsrc, os_rsrc, trb_rsrc, expert_rsrc, out_tensor, a_buf, a_scale_lds, c_tile,
+    tvr_rsrc, sx_addr=None,
     model_dim, inter_dim, sort_block_m, tile_n, num_waves, n_per_wave, wave_id,
     m_repeat, num_acc_n, a_k_step_bytes, total_threads, k_iters, a_lds_i32, n_tiles,
     expert_offset, b_cache_modifier, swizzle_a, pipe_weights, mfma_amajor, async_a_copy,
@@ -406,6 +416,7 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
     a_scale = AScaleLoader(
         packed_lds=packed_a_scale,
         scale_rsrc=sx_rsrc,
+        scale_addr=sx_addr,
         m_repeat=m_repeat,
         model_dim=model_dim,
         sort_block_m=sort_block_m,
@@ -417,7 +428,8 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
         inter_dim=inter_dim, m_repeat=m_repeat, num_acc_n=num_acc_n, sort_block_m=sort_block_m, tile_n=tile_n,
         num_waves=num_waves, lds_out=c_tile, swiglu_limit=swiglu_limit,
         swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta, always_valid=True,
-        out_tensor=out_tensor if use_tile_resource else None, bf16_intermediate=bf16_intermediate)
+        out_tensor=out_tensor if use_tile_resource else None, bf16_intermediate=bf16_intermediate,
+        tvr_rsrc=tvr_rsrc)
     # fmt: on
 
     # Work-index order. band_m=1 is upstream: n_tile is the FAST axis, so the
@@ -474,6 +486,7 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
             a_scale_lds, a_lds_i32, k_iters, m_repeat, num_acc_n,
             a_k_step_bytes, pipe_weights, mfma_amajor, async_a_copy,
             trb_rsrc, unroll_a_pingpong, split_a_lds, fp8_b_waitcnt, scalar_tile_row_base,
+            tvr_rsrc=tvr_rsrc, tvr_row_bytes=model_dim,
             wait_payload=wait_payload, work=flat)
         # fmt: on
 
@@ -552,6 +565,9 @@ def compile_gemm1(
         _, _, run_tile = build_fused_gemm1(
             x_tensor=x, w_rsrc=w_rsrc, sw_rsrc=sw_rsrc,
             sx_rsrc=sx_rsrc, out_rsrc=out_rsrc, os_rsrc=os_rsrc, trb_rsrc=trb_rsrc,
+            # The standalone group GEMM1 has no per-tile row-count table: its
+            # caller passes a dense tile_row_base and nothing else. No bound here.
+            tvr_rsrc=None,
             expert_rsrc=expert_rsrc, out_tensor=out, a_buf=a_buf,
             a_scale_lds=a_scale_lds, c_tile=c_tile, model_dim=model_dim, inter_dim=inter_dim,
             sort_block_m=sort_block_m, tile_n=tile_n, num_waves=num_waves, n_per_wave=n_per_wave,

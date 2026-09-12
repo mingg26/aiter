@@ -78,6 +78,7 @@ def _fp8_scale_for_leader(is_leader, local_max):
 # fmt: off
 def p2p_scatter_epilog(lds_acc_base, accm, n_block_idx, wave, lane, *, N_OUT, BM, BN, npes, topk,
     log2_max_tok, mask_max_tok, recv_cap, comb_inp_nbytes, lds_packed_off, lds_weight_off,
+    div_max_tok=None,
     lds_peer_off, g2_bf16_lds=False, p2p_quant_type="none",
     local_reduce=False, staging=None, counters=None, rank=0, local_reduce_xcd_local=False):
 # fmt: on
@@ -150,8 +151,17 @@ def p2p_scatter_epilog(lds_acc_base, accm, n_block_idx, wave, lane, *, N_OUT, BM
             weight = rocdl.readfirstlane(T.f32, weight.ir_value())
         t = p & fx.Int32(0x00FFFFFF)
         s = p >> fx.Int32(24)
-        dest_pe = t >> fx.Int32(log2_max_tok)
-        dest_lid = t & fx.Int32(mask_max_tok)
+        if const_expr(div_max_tok is None):
+            dest_pe = t >> fx.Int32(log2_max_tok)
+            dest_lid = t & fx.Int32(mask_max_tok)
+        else:
+            # A shift and a mask only split the encoding when max_tok is a power of
+            # two. div_max_tok carries the real value for the sizes that are not, and
+            # being a compile-time constant it lowers to a multiply-high, which is
+            # what the combine kernel's own non-pow2 path already does
+            # (flydsl_dispatch_combine_intranode_kernel.py:761).
+            dest_pe = t // fx.Int32(div_max_tok)
+            dest_lid = t - dest_pe * fx.Int32(div_max_tok)
         valid = (t < fx.Int32(recv_cap)) & (s < fx.Int32(topk)) & (dest_pe < fx.Int32(npes))
         dest_pe_safe = valid.select(dest_pe, fx.Int32(0))
         peer_base = fx.ptr_load(
@@ -322,7 +332,12 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     arch = str(get_rocm_arch() or "")
     if not arch.startswith("gfx95"):
         raise RuntimeError(f"MegaMoE v2 stage2 requires CDNA4 (gfx95x), got {arch or 'unknown'}")
-    assert max_tok > 0 and (max_tok & (max_tok - 1)) == 0, "max_tok must be power of two"
+    assert max_tok > 0
+    # Only the pow2 sizes get the shift/mask split; the rest divide. The local-reduce
+    # paths still index by log2 and have no divide, so they stay pow2-only.
+    _pow2_max_tok = (max_tok & (max_tok - 1)) == 0
+    assert _pow2_max_tok or not local_reduce, (
+        f"local reduction still requires a power-of-two max_tok, got {max_tok}")
     assert model_dim % BN == 0 and HIDDEN_MAX % BN == 0
     assert INTER_MAX % BK == 0, f"INTER_MAX must be a multiple of {BK}"
     if BM not in (16, 32, 64, 128):
@@ -379,8 +394,9 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
                 f"max_tok={max_tok} BM={BM} BN={BN} BK={BK} SBM={SBM} band_m={band_m} "
                 f"cu_num={cu_num} queue_grid_mult={queue_grid_mult} "
                 f"local_reduce={local_reduce} xcd_local={local_reduce_xcd_local}")
-    log2_max_tok = max_tok.bit_length() - 1
-    mask_max_tok = max_tok - 1
+    log2_max_tok = (max_tok.bit_length() - 1) if _pow2_max_tok else 0
+    mask_max_tok = (max_tok - 1) if _pow2_max_tok else 0
+    div_max_tok = None if _pow2_max_tok else max_tok
     N_OUT = model_dim
     # The scatter path uses the f32 CShuffle slab rather than BF16 LDS.
     g2_bhoist, g2_ascale_pf, g2_spart, g2_group_num, g2_m01, _g2_bf16_lds = _resolve_g2_knobs(
@@ -414,6 +430,13 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         f"_sk{skew_cu}"
         f"_bh{int(g2_bhoist)}apf{int(g2_ascale_pf)}sp{g2_group_num}x{g2_m01}"
         f"_bf16lds{int(g2_bf16_lds)}_{p2p_quant_type}"
+        # The A2 read's per-tile bound changes the code object, so it belongs in the
+        # name: a broken plumbing path otherwise compiles to the identical kernel and
+        # passes every gate. That is how the Stage1 version of this was missed once.
+        + "_a2b2"
+        # Only when the shared panel actually has a short tail does the bound
+        # emit code; the marker tracks the code object, not the source.
+        + ("_a2s1" if max_tok % BM else "")
         + ("_lr1" if local_reduce else "")
         + ("_xl1" if local_reduce_xcd_local else "")
         + (f"_qm{band_m}_xq{int(xcd_schedule)}" if band_m > 1 else "")
@@ -429,7 +452,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     def kernel_epilog_v2(arg_aq: fx.Int64, arg_ascale: fx.Int64, arg_bq: fx.Int64, arg_bscale: fx.Int64,
         arg_eids: fx.Int64, arg_cumsum: fx.Int64, arg_max_expert_tiles: fx.Int64, arg_stids: fx.Int64,
         arg_work_head: fx.Int64, arg_audit: fx.Int64, arg_staging: fx.Int64, arg_counters: fx.Int64, arg_route_masks: fx.Int64, arg_shared_l2: fx.Int64,
-        arg_sweights: fx.Int64, arg_trb: fx.Int64, arg_p2p_comb_inp: fx.Int64, i32_max_m_blocks: fx.Int32,
+        arg_sweights: fx.Int64, arg_trb: fx.Int64, arg_tvr: fx.Int64, arg_p2p_comb_inp: fx.Int64, i32_max_m_blocks: fx.Int32,
         i32_inter: fx.Int32, i32_hidden: fx.Int32, i32_kpad: fx.Int32, i32_npad: fx.Int32):
     # fmt: on
         tx_i32 = fx.thread_idx.x
@@ -444,6 +467,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         k_bytes = fx.Int32(i32_inter) // fx.Int32(1 if is_f8 else 2)
         # kernel-invariant scatter resources + peer-base table (loaded into registers once).
         trb_rsrc = buffer_ops.create_buffer_resource_from_addr(arg_trb)
+        tvr_rsrc = buffer_ops.create_buffer_resource_from_addr(arg_tvr)
         r_stids = buffer_ops.create_buffer_resource_from_addr(arg_stids)
         r_sweights = buffer_ops.create_buffer_resource_from_addr(arg_sweights)
         _r_p2p_tbl = buffer_ops.create_buffer_resource_from_addr(arg_p2p_comb_inp)
@@ -471,30 +495,68 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
             shared_b, shared_bs = shared_ptr(2), shared_ptr(3)
             shared_e, shared_out, shared_heads = shared_ptr(4), shared_ptr(5), shared_ptr(6)
 
+        def routed_a_tile_bytes(m_row0):
+            # Rows past the sort block's real row count are padding; bounding the A
+            # payload buffer to the rows that carry a token makes them cost nothing.
+            sort_block_idx = m_row0 // fx.Int32(SBM)
+            valid_rows = buffer_ops.buffer_load(tvr_rsrc, sort_block_idx, vec_width=1, dtype=fx.Int32)
+            valid_rows = valid_rows - (m_row0 - sort_block_idx * fx.Int32(SBM))
+            valid_rows = (valid_rows > fx.Int32(0)).select(valid_rows, fx.Int32(0))
+            valid_rows = (valid_rows < fx.Int32(BM)).select(valid_rows, fx.Int32(BM))
+            # num_records has to be wave-uniform. Every lane of a wave loads the same
+            # m_block, so the value already is uniform -- but leaving it in a VGPR makes
+            # the whole 128-bit descriptor divergent and the compiler emits a waterfall
+            # (v_cmp_eq_u64 / s_and_saveexec / s_xor exec) around the direct-to-LDS
+            # load. Same reason do_tile readfirstlanes its A bound.
+            valid_rows = fx.Int32(rocdl.readfirstlane(T.i32, fx.Int32(valid_rows).ir_value()))
+            return fx.Int64(valid_rows) * fx.Int64(inter_dim)
+
+        def shared_a_tile_bytes(m_row0):
+            # The shared panel is dense -- max_tok rows, no expert grouping -- so its
+            # only short tile is the last one, and only when BM does not divide
+            # max_tok. Every size in use today divides (64/64, 96/32, 128/32, 512/64),
+            # so this is currently a no-op; it stops being one as soon as max_tok is
+            # any multiple of 8, which is the direction this has to support.
+            if const_expr(max_tok % BM == 0):
+                return fx.Int64(min(max_tok, BM) * inter_dim)
+            rows = fx.Int32(max_tok) - m_row0
+            rows = (rows > fx.Int32(0)).select(rows, fx.Int32(0))
+            rows = (rows < fx.Int32(BM)).select(rows, fx.Int32(BM))
+            # Wave-uniform, or the descriptor waterfalls -- same reason as the routed
+            # bound above.
+            rows = fx.Int32(rocdl.readfirstlane(T.i32, fx.Int32(rows).ir_value()))
+            return fx.Int64(rows) * fx.Int64(inter_dim)
+
         def issue_all_a_loads(m_row0):
+            a_tile_bytes = routed_a_tile_bytes(m_row0)
             for slot in range_constexpr(kStages):
                 issue_a_load_lds_dt(arg_aq, lds_base_i32, slot, slot, m_row0, wave, lane,
-                    is_f8, KH_TILE_A, k_bytes, BM=BM)
+                    is_f8, KH_TILE_A, k_bytes, BM=BM, a_tile_bytes=a_tile_bytes)
 
         def run_unit(unit_bx, m_block_idx, is_shared=None):
             selected_a, selected_as = arg_aq, arg_ascale
             selected_b, selected_bs, selected_e = arg_bq, arg_bscale, arg_eids
             selected_m_blocks = i32_max_m_blocks
-            selected_a_tile_bytes = None
             if const_expr(shared_l2):
                 def select_addr(a, b):
                     value = is_shared.select(a, b)
                     return fx.Int64(rocdl.readfirstlane(T.i64, value.ir_value()))
                 selected_a, selected_as = select_addr(shared_a, arg_aq), select_addr(shared_as, arg_ascale)
-                if const_expr(max_tok < BM):
-                    selected_a_tile_bytes = is_shared.select(fx.Int64(max_tok * inter_dim), fx.Int64(BM * inter_dim))
                 selected_b, selected_bs = select_addr(shared_b, arg_bq), select_addr(shared_bs, arg_bscale)
                 selected_e = select_addr(shared_e, arg_eids)
                 selected_m_blocks = is_shared.select(fx.Int32(((max_tok + BM - 1) // BM)), i32_max_m_blocks)
+                # Shared tiles walk the dense shared panel, not the routed sort
+                # space, so they get the panel's own tail bound rather than the
+                # routed one.
+                selected_a_tile_bytes = is_shared.select(
+                    shared_a_tile_bytes(m_block_idx * fx.Int32(BM)),
+                    routed_a_tile_bytes(m_block_idx * fx.Int32(BM)))
                 for slot in range_constexpr(kStages):
                     issue_a_load_lds_dt(selected_a, lds_base_i32, slot, slot, m_block_idx * BM, wave, lane,
                         is_f8, KH_TILE_A, k_bytes, BM=BM, a_tile_bytes=selected_a_tile_bytes)
                 rocdl.sched_barrier(0)
+            else:
+                selected_a_tile_bytes = routed_a_tile_bytes(m_block_idx * fx.Int32(BM))
 
             def prepare_routed():
                 # Map each Stage2 BM sub-tile to its Stage1 SBM metadata row.
@@ -548,7 +610,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
 
             def routed_epilog():
                 p2p_scatter_epilog(lds_base_i32, accm_vecs, n_block_idx, wave, lane, N_OUT=N_OUT,
-                    BM=BM, BN=BN, npes=npes, topk=topk,
+                    BM=BM, BN=BN, npes=npes, topk=topk, div_max_tok=div_max_tok,
                     log2_max_tok=log2_max_tok, mask_max_tok=mask_max_tok, recv_cap=_recv_cap,
                     comb_inp_nbytes=_comb_inp_nbytes, lds_packed_off=lds_packed_off,
                     lds_weight_off=lds_weight_off, lds_peer_off=lds_peer_off, g2_bf16_lds=g2_bf16_lds,
@@ -739,7 +801,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     def launch(arg_aq: fx.Int64, arg_ascale: fx.Int64, arg_bq: fx.Int64, arg_bscale: fx.Int64,
         arg_eids: fx.Int64, arg_cumsum: fx.Int64, arg_max_expert_tiles: fx.Int64, arg_stids: fx.Int64,
         arg_work_head: fx.Int64, arg_audit: fx.Int64, arg_staging: fx.Int64, arg_counters: fx.Int64, arg_route_masks: fx.Int64, arg_shared_l2: fx.Int64,
-        arg_sweights: fx.Int64, arg_trb: fx.Int64, arg_p2p_comb_inp: fx.Int64, i32_max_m_blocks: fx.Int32,
+        arg_sweights: fx.Int64, arg_trb: fx.Int64, arg_tvr: fx.Int64, arg_p2p_comb_inp: fx.Int64, i32_max_m_blocks: fx.Int32,
         i32_grid_blocks: fx.Int32, i32_inter: fx.Int32, i32_hidden: fx.Int32, i32_kpad: fx.Int32,
         i32_npad: fx.Int32, stream: fx.Stream):
     # fmt: on
@@ -747,7 +809,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         grid_x = i32_grid_blocks * fx.Int32(queue_grid_mult) if band_m > 1 else i32_grid_blocks * num_n_blocks
         kernel_epilog_v2(
             arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cumsum, arg_max_expert_tiles,
-            arg_stids, arg_work_head, arg_audit, arg_staging, arg_counters, arg_route_masks, arg_shared_l2, arg_sweights, arg_trb, arg_p2p_comb_inp, i32_max_m_blocks, i32_inter,
+            arg_stids, arg_work_head, arg_audit, arg_staging, arg_counters, arg_route_masks, arg_shared_l2, arg_sweights, arg_trb, arg_tvr, arg_p2p_comb_inp, i32_max_m_blocks, i32_inter,
             i32_hidden, i32_kpad, i32_npad,
         ).launch(grid=(grid_x, 1, 1), block=(256, 1, 1), stream=stream)
 
@@ -769,7 +831,7 @@ def _get_g2_launch(**compile_kw):
 
 # fmt: off
 def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cumsum,
-    arg_max_expert_tiles, arg_stids, arg_sweights, arg_trb, arg_p2p, row_capacity, i32_inter, i32_hidden, stream, *,
+    arg_max_expert_tiles, arg_stids, arg_sweights, arg_trb, arg_tvr, arg_p2p, row_capacity, i32_inter, i32_hidden, stream, *,
     model_dim, inter_dim, experts, topk, rank, npes, max_tok, recv_cap, comb_inp_nbytes, BM, SBM,
     HIDDEN_MAX, INTER_MAX, cu_num, BN=256, BK=256, use_nt=True, g2_bhoist=True,
     g2_ascale_pf=True, g2_spart=402, persist=False, persist_cu=0, persist_strided=False,
@@ -797,6 +859,6 @@ def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cu
     grid_blocks = launch_cu_num if persist else max_m_blocks
     _run_compiled(
         launch, arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cumsum,
-        arg_max_expert_tiles, arg_stids, fx.Int64(work_head), fx.Int64(audit_ptr), fx.Int64(staging_ptr), fx.Int64(counters_ptr), fx.Int64(route_masks_ptr), fx.Int64(shared_l2), arg_sweights, arg_trb, arg_p2p, fx.Int32(max_m_blocks),
+        arg_max_expert_tiles, arg_stids, fx.Int64(work_head), fx.Int64(audit_ptr), fx.Int64(staging_ptr), fx.Int64(counters_ptr), fx.Int64(route_masks_ptr), fx.Int64(shared_l2), arg_sweights, arg_trb, arg_tvr, arg_p2p, fx.Int32(max_m_blocks),
         fx.Int32(grid_blocks), fx.Int32(i32_inter), fx.Int32(i32_hidden), fx.Int32(0), fx.Int32(0), stream,
     )

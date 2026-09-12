@@ -110,8 +110,16 @@ class ATileLoader:
                 128,
             )
 
-    def for_tile(self, tile_row_base_i32):
-        """Precompute LDS and tile-local global offsets for one M tile."""
+    def for_tile(self, tile_row_base_i32, tile_bytes_i32=None):
+        """Precompute LDS and tile-local global offsets for one M tile.
+
+        `tile_bytes_i32` bounds this tile's buffer resource to the rows that carry a
+        token. The reads past it are still issued, but a buffer load beyond
+        num_records returns zero without going to memory, so the padding rows cost no
+        bandwidth. Unbounded, the loader reads the whole sort block: at 512 local
+        tokens that is 1.47x the rows that exist, and 7.9x at 16.
+        """
+        tile_bytes = self._tile_bytes if tile_bytes_i32 is None else tile_bytes_i32
         tile_iter = fx.add_offset(
             fx.get_iter(self._x_tensor),
             fx.Int64(tile_row_base_i32) * fx.Int64(self._row_bytes),
@@ -126,13 +134,13 @@ class ATileLoader:
             fx.Int32,
             4,
             max_size=False,
-            num_records_bytes=self._tile_bytes,
+            num_records_bytes=tile_bytes,
         )
         if const_expr(self._async_copy):
             tile_buffer = fx.rocdl.make_buffer_tensor(
                 tile_view,
                 max_size=False,
-                num_records_bytes=self._tile_bytes,
+                num_records_bytes=tile_bytes,
             )
             self._tile_dma = fx.logical_divide(
                 tile_buffer,
@@ -342,8 +350,11 @@ class BScaleLoader:
 class AScaleLoader:
     """Per-1x32 E8M0 A scales STAGED to LDS once per tile (stage), read via ds_read in K-loop (kills VMEM flood)."""
 
-    def __init__(self, *, scale_rsrc, m_repeat, model_dim, sort_block_m, total_threads, packed_lds=False):
+    def __init__(self, *, scale_rsrc, m_repeat, model_dim, sort_block_m, total_threads, packed_lds=False, scale_addr=None):
         self._rsrc = scale_rsrc
+        # A per-tile num_records bound lives in the buffer descriptor, so staging
+        # must rebuild the descriptor per tile, which needs the raw base address.
+        self._scale_addr = scale_addr
         self._n_scale = model_dim // 32
         self._lane = fx.thread_idx.x % 64
         self._n_groups = m_repeat // _PACK
@@ -352,7 +363,7 @@ class AScaleLoader:
         self._tx = fx.thread_idx.x
         self._packed_lds = packed_lds
 
-    def _stage_packed(self, lds, tile_row_base):
+    def _stage_packed(self, lds, tile_row_base, rsrc):
         # Same 24 KiB at M128/H6144: [K256 step, M32 group, lane64] i32.
         # Each worker reads two rows x 16 scales, producing eight packed words.
         # The incoming buffer view uses 16-byte groups, as in raw staging.
@@ -366,8 +377,8 @@ class AScaleLoader:
                 pair_step = item // fx.Int32(16 * self._n_groups)
                 row = tile_row_base + group * fx.Int32(32) + r
                 offset = row * fx.Int32(self._n_scale) + pair_step * fx.Int32(16)
-                a = _buffer_load(self._rsrc, offset // fx.Int32(16), fx.Int32, 4)
-                b = _buffer_load(self._rsrc, (offset + fx.Int32(16 * self._n_scale)) // fx.Int32(16), fx.Int32, 4)
+                a = _buffer_load(rsrc, offset // fx.Int32(16), fx.Int32, 4)
+                b = _buffer_load(rsrc, (offset + fx.Int32(16 * self._n_scale)) // fx.Int32(16), fx.Int32, 4)
                 for half in range_constexpr(2):
                     step = pair_step * fx.Int32(2) + fx.Int32(half)
                     for klane in range_constexpr(4):
@@ -382,21 +393,34 @@ class AScaleLoader:
         for c in range_constexpr(0, count, self._total_threads):
             copy_item(fx.Int32(c) + self._tx)
 
-    def stage(self, lds_ascale, tile_row_base_i32):
-        """Coalesced gmem->LDS copy of this tile's e8m0 A-scale block [sort_block_m, n_scale]. Call before K-loop."""
+    def stage(self, lds_ascale, tile_row_base_i32, valid_rows_i32=None):
+        """Coalesced gmem->LDS copy of this tile's e8m0 A-scale block [sort_block_m, n_scale]. Call before K-loop.
+
+        `valid_rows_i32` rebuilds the staging descriptor on this tile's base with
+        num_records = valid_rows*n_scale, so the padding chunks still issue but a
+        buffer load beyond num_records returns zero without going to memory.
+        """
+        rsrc = self._rsrc
+        row0 = tile_row_base_i32
+        if const_expr(valid_rows_i32 is not None):
+            assert self._scale_addr is not None, "bounded A-scale staging needs the scale base address"
+            rsrc = _make_buffer_from_addr(
+                self._scale_addr + fx.Int64(tile_row_base_i32) * fx.Int64(self._n_scale),
+                fx.Int32, 4, num_records_bytes=valid_rows_i32 * fx.Int32(self._n_scale))
+            row0 = fx.Int32(0)
         if const_expr(self._packed_lds):
-            self._stage_packed(lds_ascale, tile_row_base_i32)
+            self._stage_packed(lds_ascale, row0, rsrc)
             return
         total = self._sort_block_m * self._n_scale
         assert total % 16 == 0, "A-scale tile must contain whole 16-byte copy chunks"
-        base = tile_row_base_i32 * fx.Int32(self._n_scale)
+        base = row0 * fx.Int32(self._n_scale)
         n16 = total // 16
 
         @flyc.jit
         def copy_chunk(lin: fx.Int32):
             if lin < fx.Int32(n16):
                 v = _buffer_load(
-                    self._rsrc,
+                    rsrc,
                     (base + lin * fx.Int32(16)) // fx.Int32(16),
                     fx.Int32,
                     4,
@@ -643,7 +667,7 @@ class SiluQuantEpilogue:
     # fmt: off
     def __init__(self, *, out_rsrc, out_scale_rsrc, sorted_rsrc, tokens, inter_dim, m_repeat, num_acc_n,
         sort_block_m, tile_n, num_waves, lds_out, swiglu_limit=0.0, swiglu_alpha=1.0, swiglu_beta=0.0,
-        always_valid=False, out_tensor=None, waves_along_m=False, bf16_intermediate=None):
+        always_valid=False, out_tensor=None, waves_along_m=False, bf16_intermediate=None, tvr_rsrc=None):
     # fmt: on
         self._out_rsrc = out_rsrc
         self._out_scale_rsrc = out_scale_rsrc
@@ -666,6 +690,7 @@ class SiluQuantEpilogue:
         self._out_tensor = out_tensor
         self._waves_along_m = waves_along_m
         self._bf16_intermediate = bf16_intermediate
+        self._tvr_rsrc = tvr_rsrc
         self._lane = fx.thread_idx.x % 64
         self._sorted_scale_cols_i32 = (inter_dim // 32 + 7) // 8 * 8
 
@@ -766,6 +791,11 @@ class SiluQuantEpilogue:
         m_reps = self._sort_block_m // rows_per_iter
         n_reps = cs_tile_n // (NLANE * EVEC)
         out_tile_base = n_tile_base_i32 // fx.Int32(2) - cbase
+        if const_expr(self._tvr_rsrc is not None):
+            # This tile's real (non-padding) row count. Wave-uniform like the
+            # A-read bound in do_tile: every lane of a wave stores the same tile.
+            tile_valid_rows = fx.Int32(rocdl.readfirstlane(
+                T.i32, _buffer_load(self._tvr_rsrc, tile_i32, fx.Int32).ir_value()))
 
         for mr in range_constexpr(m_reps):
             row = fx.Int32(mr * rows_per_iter) + mlane
@@ -782,6 +812,12 @@ class SiluQuantEpilogue:
                 tok = _buffer_load(self._sorted_rsrc, slot, fx.Int32)
                 valid = tok < fx.Int32(self._tokens)
                 out_row_base = slot * fx.Int32(self._inter_dim)
+            if const_expr(self._tvr_rsrc is not None):
+                # A padding row lies inside the whole-buffer num_records, so
+                # without this its store lands for real. Marking it invalid sends
+                # it to the out-of-range offset below, which num_records drops --
+                # the same redirect the Stage2 scatter uses.
+                valid = (row < tile_valid_rows) if const_expr(self._always_valid) else valid & (row < tile_valid_rows)
             for nr in range_constexpr(n_reps):
                 col0 = fx.Int32(nr * NLANE * EVEC) + nlane * fx.Int32(EVEC)
                 idx = row * fx.Int32(cs_tile_n) + col0
@@ -817,7 +853,8 @@ class SiluQuantEpilogue:
                 d4 = (col_s >> fx.Int32(2)) & fx.Int32(1)
                 d5 = col_s & fx.Int32(3)
                 byte_off = d0 * n32 + d3 * fx.Int32(256) + d5 * fx.Int32(64) + d2 * fx.Int32(4) + d4 * fx.Int32(2) + d1
-                byte_off = is_writer.select(byte_off, fx.Int32(0x40000000))
+                scale_valid = (valid & is_writer) if const_expr(self._tvr_rsrc is not None) else is_writer
+                byte_off = scale_valid.select(byte_off, fx.Int32(0x40000000))
                 e8m0_i8 = e8m0_v.to(fx.Int8)
                 _buffer_store(self._out_scale_rsrc, byte_off, e8m0_i8, fx.Int8)
         wait_lds_barrier()

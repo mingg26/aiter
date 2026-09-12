@@ -99,6 +99,7 @@ def compile_mega_moe_stage1(
     scalar_tile_row_base: bool = False,
     prefetch_a_operand: bool = False,
     xcd_schedule: bool = False, xcd_home: bool = True, shared_xcd_home: bool = True,
+    shared_row_stride: int | None = None,
     schedule_audit: bool = False, reset_stage2_queue: bool = False, shared_l13: bool = False, shared_xcd: bool = False,
 ):
     arch = str(get_rocm_arch() or "")
@@ -148,12 +149,23 @@ def compile_mega_moe_stage1(
             assert got == want, f"fused shared L13 small regime wants {want}, got {got}"
             # A 32-row tile is measured at EP8 b16, where each expert holds only a
             # handful of rows and a 64-row tile is mostly padding. Every
-            # sort_block_m user below scales with it; the shared queue keeps a
-            # single tile only while the local batch still fits one, which is what
-            # lets the 64-strided shared row table in MegaMoEM3 stay valid.
+            # sort_block_m user below scales with it, including the shared queue,
+            # whose tile count is mtpr // sort_block_m -- so the row table in
+            # MegaMoEM3 must stride by the same value, which the assert above now
+            # checks directly instead of assuming a 64-row stride.
             assert sort_block_m in (32, 64)
-            assert sort_block_m == 64 or int(fuse_mtpr) <= sort_block_m, (
-                'shared row table in MegaMoEM3 still strides by 64')
+            # The real invariant is that MegaMoEM3's shared row table and the tile
+            # count below index the same blocks. The count takes a ceiling only while
+            # the whole local batch is smaller than one sort block; above that it
+            # divides, so a larger batch must also be a multiple. Asserting only the
+            # divisibility is not enough: the table's stride is chosen by MegaMoEM3,
+            # and (mtpr 128, sort_block_m 32) divides while the table still holds two
+            # 64-row entries, which would read past it. So the stride comes in and is
+            # checked against what this kernel will actually divide by.
+            assert shared_row_stride is None or int(shared_row_stride) == sort_block_m, (
+                f'shared row table strides by {shared_row_stride}, Stage1 divides by {sort_block_m}')
+            assert int(fuse_mtpr) <= sort_block_m or int(fuse_mtpr) % sort_block_m == 0, (
+                f'{fuse_mtpr} local tokens need a sort block that divides them, got {sort_block_m}')
         else:
             assert int(fuse_mtpr) in SHARED_FUSED_MTPR_LARGE, (
                 f"fused shared L13 has no validated regime for {fuse_mtpr} local tokens")
@@ -189,7 +201,11 @@ def compile_mega_moe_stage1(
             # Deliberately NOT the fused-shared token set: this is the unfused
             # small-XCD path, which EP4 also drives at 512 and 1024 with a 64-row
             # sort block, and which no one has validated at 2048 and above.
-            assert fuse_mtpr in (16, 32, 64, 128, 256, 512, 1024)
+            # 96 is here because the schedule itself imposes nothing on the token
+            # count -- it maps tickets to canonical m*N_TILES+n indices and the m
+            # tile count comes from num_valid at run time -- so this list records
+            # which sizes have been measured, not what the decoder can do.
+            assert fuse_mtpr in (16, 32, 64, 96, 128, 256, 512, 1024)
             assert not fixed_slot_dispatch
         else:
             assert N_TILES % 8 == 0 and payload_tile_ready and BAND_M > 1
@@ -231,6 +247,13 @@ def compile_mega_moe_stage1(
     direct_fixed_slot = _use_direct_fixed_slot(
         fixed_slot_dispatch, fz_npes, fz_epr, fz_mtpr, fz_cap, fz_tile_m
     )
+    # GEMM1 bounds its A read with the per-tile row count that emit_dispatch_plan
+    # records. emit_direct_fixed_slot_finalize writes tile_row_base and nothing else,
+    # so that layout cannot supply the bound; say so rather than silently reading a
+    # stale one or silently giving up the saving.
+    assert not direct_fixed_slot, (
+        'the direct fixed-slot layout does not record per-tile row counts, which the '
+        'bounded A read requires')
     fz_total_experts = fz_npes * fz_epr
     # Small batches stream B; large batches cache it across M tiles.
     b_cache_modifier = int(b_nt) if int(b_nt) >= 0 else (3 if fz_mtpr <= 512 else 0)
@@ -289,6 +312,14 @@ def compile_mega_moe_stage1(
         + ("_bpa1" if prefetch_b_before_a else "")
         + ("_jwf1" if joint_work_flags else "")
         + ("_qplan1" if preplanned else "")
+        # The A read's per-tile bound changes the code object, so it belongs in the
+        # name: without it a broken plumbing path compiles to the identical kernel and
+        # passes every gate, which is exactly how this was missed once.
+        + "_atb1"
+        # Same for the A-scale read's bound, and for the store-side half: dropping
+        # padding-row writes also changes the code object.
+        + "_asb1"
+        + "_svb1"
         + "_scratchfix1"
         + ("_s2qr1" if reset_stage2_queue else "")
         + ("_sharedl13" if shared_l13 else "")
@@ -527,11 +558,11 @@ def compile_mega_moe_stage1(
             out_rsrc = _make_buffer(out, fx.Int16, max_size=False, num_records_bytes=out_nbytes)
         os_rsrc = _make_buffer(out_scale, fx.Int8, max_size=False, num_records_bytes=os_nbytes)
 
-        def _build_runner(x_tensor, w_buf, sw_buf, sx_buf, out_buf, os_buf, trb_buf, expert_buf, out_tensor, shared_flag=None):
+        def _build_runner(x_tensor, w_buf, sw_buf, sx_buf, out_buf, os_buf, trb_buf, expert_buf, out_tensor, shared_flag=None, tvr_buf=None, sx_addr=None):
             return build_fused_gemm1(
                 x_tensor=x_tensor, w_rsrc=w_buf,
-                sw_rsrc=sw_buf, sx_rsrc=sx_buf, out_rsrc=out_buf, os_rsrc=os_buf,
-                trb_rsrc=trb_buf, expert_rsrc=expert_buf, out_tensor=out_tensor,
+                sw_rsrc=sw_buf, sx_rsrc=sx_buf, sx_addr=sx_addr, out_rsrc=out_buf, os_rsrc=os_buf,
+                trb_rsrc=trb_buf, tvr_rsrc=tvr_buf, expert_rsrc=expert_buf, out_tensor=out_tensor,
                 a_buf=a_buf, a_scale_lds=a_scale_lds, c_tile=c_tile,
                 model_dim=model_dim, inter_dim=inter_dim, sort_block_m=sort_block_m,
                 tile_n=tile_n, num_waves=NUM_WAVES, n_per_wave=n_per_wave, wave_id=wave_id,
@@ -552,9 +583,14 @@ def compile_mega_moe_stage1(
                 swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
             )
 
+        # One int32 per sort block: the rows that carry a token. GEMM1 bounds its A
+        # buffer with it so the padding rows cost no bandwidth.
+        a_tvr = _disp_ptr(DispatchSlot.TILE_VALID_ROWS)
+        tvr_rsrc = _make_buffer_from_addr(a_tvr, fx.Int32)
         if const_expr(not shared_l13):
             expert_of_flat, _m_tile_of_flat, _do_scheduled_tile = _build_runner(
-                x, w_rsrc, sw_rsrc, sx_rsrc, out_rsrc, os_rsrc, trb_rsrc, expert_rsrc, out)
+                x, w_rsrc, sw_rsrc, sx_rsrc, out_rsrc, os_rsrc, trb_rsrc, expert_rsrc, out,
+                tvr_buf=tvr_rsrc, sx_addr=fx.Int64(fx.ptrtoint(fx.get_iter(scale_x))))
         else:
             if const_expr(fuse_mtpr < sort_block_m):
                 shared_m_tiles = (i32_cur_tok + fx.Int32(sort_block_m - 1)) // fx.Int32(sort_block_m)
@@ -836,7 +872,8 @@ def compile_mega_moe_stage1(
                     selected_out = _byte_tensor(_selected_addr(is_shared, 2, out))
                     selected_w = _make_buffer_from_addr(_selected_addr(is_shared, 0, w), fx.Int32, 4)
                     selected_sw = _make_buffer_from_addr(_selected_addr(is_shared, 1, scale_w), fx.Int32)
-                    selected_sx = _make_buffer_from_addr(_uniform_addr(is_shared.select(addr_in_sc, fx.Int64(fx.ptrtoint(fx.get_iter(scale_x))))), fx.Int32, 4,
+                    selected_sx_addr = _uniform_addr(is_shared.select(addr_in_sc, fx.Int64(fx.ptrtoint(fx.get_iter(scale_x)))))
+                    selected_sx = _make_buffer_from_addr(selected_sx_addr, fx.Int32, 4,
                         num_records_bytes=(is_shared.select(fx.Int32(fuse_mtpr * (model_dim // 32)), fx.Int32(0x7fffffff))
                             if fuse_mtpr < sort_block_m else None))
                     selected_trb = _make_buffer_from_addr(_selected_addr(is_shared, 4, sorted_token_ids), fx.Int32)
@@ -848,8 +885,13 @@ def compile_mega_moe_stage1(
                     else:
                         selected_out_rsrc = _make_buffer_from_addr(_selected_addr(is_shared, 2, out), fx.Int16,
                             num_records_bytes=is_shared.select(i32_cur_tok, tokens) * fx.Int32(inter_dim))
+                    # Slot 7 of the shared pointer table mirrors the routed
+                    # tile_valid_rows, so the same bound serves either task kind.
+                    selected_tvr = _make_buffer_from_addr(_uniform_addr(is_shared.select(
+                        _buffer_load(shared_table, fx.Int32(7), fx.Int64), a_tvr)), fx.Int32)
                     _, _, run_selected = _build_runner(selected_x, selected_w, selected_sw, selected_sx,
-                        selected_out_rsrc, selected_os, selected_trb, selected_expert, selected_out, is_shared)
+                        selected_out_rsrc, selected_os, selected_trb, selected_expert, selected_out, is_shared,
+                        tvr_buf=selected_tvr, sx_addr=selected_sx_addr)
                     tile_work = is_shared.select(uniform_work, uniform_work - shared_work)
 
                     def _wait_selected(ignored):
@@ -907,6 +949,7 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
     mfma_amajor=False, swizzle_a=True, async_a_copy=False, num_dispatch_cu=32,
     use_tile_resource=True, waves_per_eu_hint=2,
     b_nt=-1, work_shards=None, external_grouping=None, external_counting=None,
+    shared_row_stride=None,
     skip_launch_barrier=False,
     padding_uniform_srcmap=False,
     count_uniform_matrix=False,
@@ -925,6 +968,7 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
         async_a_copy=async_a_copy, use_tile_resource=use_tile_resource,
         waves_per_eu_hint=waves_per_eu_hint, num_cu=num_cu, num_dispatch_cu=num_dispatch_cu,
         xcd_home=xcd_home, shared_xcd_home=shared_xcd_home,
+        shared_row_stride=shared_row_stride,
         b_nt=b_nt, work_shards=work_shards, external_grouping=external_grouping,
         external_counting=external_counting, payload_chunk_rows=payload_chunk_rows,
         skip_launch_barrier=skip_launch_barrier,

@@ -1327,9 +1327,14 @@ class FlyDSLDispatchCombineIntraNodeOp:
                 raise ValueError("stage2_topk_ids must be contiguous local int32[cur_tok, topk]")
             if not prefetch_local:
                 local_reduce_epr = cfg.num_experts_per_rank
+        # The substantive conditions are the ids, the shared input and the full local
+        # batch. The token list records which sizes were measured; what the prefetch
+        # path actually needs is an exact warp partition per token, and that is
+        # enforced where it belongs, at kernel build time in
+        # flydsl_dispatch_combine_intranode_kernel.py:481.
         if prefetch_local and not (stage2_topk_ids is not None and shared_input
-                and int(cur_tok) in (16, 32, 64, 128, 256) and cfg.max_num_inp_token_per_rank == int(cur_tok)):
-            raise ValueError("local prefetch requires full 16/32/64/128/256-token shared combine and topk ids")
+                and int(cur_tok) in (16, 32, 64, 96, 128, 256) and cfg.max_num_inp_token_per_rank == int(cur_tok)):
+            raise ValueError("local prefetch requires full 16/32/64/96/128/256-token shared combine and topk ids")
         if shared_input:
             if not (skip_stage1 and p2p_quant == "none" and not enable_weights
                     and not cfg.zero_copy and not cfg.enable_std_moe and not fp8_dc

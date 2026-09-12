@@ -37,7 +37,18 @@ P2P_FP8_MIN_MTPR = 1024
 # npes*T*topk/experts, i.e. exactly 128 at T=512 and a multiple of 128 above it,
 # which is what lets the 128-row sort block and the 128-row shared row table in
 # MegaMoEM3 divide evenly at every large size.
-SHARED_FUSED_MTPR_SMALL = (16, 32, 64, 128, 256)
+SHARED_FUSED_MTPR_SMALL = (16, 32, 64, 96, 128, 256)
+
+# Stage1's sort block per small-regime size, and the stride of the shared row
+# table MegaMoEM3 builds. One table because Stage1 divides the local batch by the
+# sort block while the row table is built from the stride: if the two drift, the
+# shared tile counts disagree and the L13 epoch accounting is silently wrong.
+#
+# 96 has to take 32. Stage1 only uses a ceiling for the shared tile count while
+# the whole local batch is smaller than one sort block; above that it divides, so
+# the batch must be a multiple of the sort block. 96 % 64 != 0 would drop the
+# third tile, while 96 = 3 * 32 is exact and needs no partial-tile handling.
+SHARED_SMALL_SORT_BLOCK_M = {16: 32, 32: 32, 64: 64, 96: 32, 128: 64, 256: 64}
 SHARED_FUSED_MTPR_LARGE = (512, 1024, 2048, 4096, 8192)
 SHARED_FUSED_MTPR = SHARED_FUSED_MTPR_SMALL + SHARED_FUSED_MTPR_LARGE
 
@@ -60,9 +71,10 @@ SHARED_FUSED_S1_GEOMETRY = {
 # here as an absence: BM=64 with BN=256 exceeds the 64 KB workgroup LDS.
 #
 # SBM follows Stage1's sort_block_m, so the SBM column mirrors what Stage1 may
-# emit at that size: 32 only at 16 and 32, where the local batch still fits one
-# shared tile (measured at EP8 b32, where it is worth 6.8% on its own), 64
-# through 256, and 128 for the large regime. The (64, 64) BM/SBM pair at
+# emit at that size: 32 wherever SHARED_SMALL_SORT_BLOCK_M picks it (measured at
+# EP8 b32, where it is worth 6.8% on its own), 64 through 256, and 128 for the
+# large regime. A 32-row block no longer implies a single shared tile: at 96 local
+# tokens it is three. The (64, 64) BM/SBM pair at
 # max_tok=64 is that size's measured best: a 64-row S2 tile under a 64-row sort
 # block gives each B panel exactly one consumer, which is what makes the
 # non-temporal B load profitable there.
@@ -77,6 +89,10 @@ SHARED_L2_S2_SHAPES = {
     16: ((128, 256, 32, 64), (128, 256, 32, 32), (256, 256, 32, 32)),
     32: ((128, 256, 32, 64), (128, 256, 32, 32), (256, 256, 32, 32)),
     64: ((128, 256, 32, 64), (128, 256, 64, 64)),
+    # 96 mirrors 16/32: SBM follows Stage1's 32-row sort block. Both BN values are
+    # listed, but _select_config emits 128 here, so BN=256 is reachable only by a
+    # sweep that passes the config explicitly -- it is not a selector default.
+    96: ((128, 256, 32, 32), (256, 256, 32, 32)),
     128: ((128, 256, 32, 64), (256, 256, 32, 64)),
     256: ((128, 256, 32, 64),),
     512: ((128, 128, 64, 128),),
@@ -520,8 +536,10 @@ def select_mega_moe_config(
     model_dim: int = 7168,
     inter_dim: int = 3072,
 ) -> MegaMoEConfig:
-    if mtpr <= 0 or mtpr & (mtpr - 1):
-        raise ValueError(f"mtpr={mtpr} must be a positive power of two")
+    # mtpr_config_class thresholds and nearest_token_bucket bisects, so nothing
+    # below this point depends on mtpr being a power of two.
+    if mtpr <= 0:
+        raise ValueError(f"mtpr={mtpr} must be positive")
     if tokens > mtpr:
         raise ValueError(f"tokens={tokens} exceeds mtpr={mtpr}")
     if experts_per_rank <= 0:
