@@ -22,7 +22,7 @@ from ..tensor_shim import _run_compiled
 from .. import communication_ops_utils as comm_ops
 
 from .local_reduce import scatter_local_reduce, pack_local_reduce_metadata
-from .mega_moe_config import SHARED_FUSED_MTPR_SMALL, shared_l2_s2_shape_ok
+from .mega_moe_config import SHARED_FUSED_MTPR_SMALL, SHARED_L2_SCHEDULES, shared_l2_s2_shape_ok
 
 from .gemm2 import (
     _resolve_g2_knobs,
@@ -362,7 +362,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     if local_reduce_xcd_local:
         assert local_reduce and persist and band_m > 1 and xcd_schedule, (
             "XCD-local staging requires local reduction and physical-XCD queues")
-    if shared_schedule not in ("tail", "early2"):
+    if shared_schedule not in SHARED_L2_SCHEDULES:
         raise ValueError(f"unsupported shared_schedule={shared_schedule!r}")
     if shared_l2:
         assert (model_dim, inter_dim) == (6144, 3072)
@@ -389,6 +389,16 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     skip_empty = (shared_l2 and not local_reduce and BM < SBM
                   and max_tok in (104, 112, 128, 160, 168, 176, 184, 192, 200, 256))
     shared_early2 = shared_l2 and shared_schedule == "early2"
+    shared_joint = shared_l2 and shared_schedule == "jointtail"
+    # A queue combines routed and shared N panels with the same home.
+    # The validated small-batch path resets its routed head every forward.
+    if shared_joint and not (
+            not local_reduce and max_tok in SHARED_FUSED_MTPR_SMALL
+            and (npes, band_m, cu_num, queue_grid_mult) == (8, 8, 128, 5)
+            and xcd_home and shared_xcd_home):
+        raise ValueError(
+            "jointtail requires small EP8 shared L2, band8, cu128, qg5, "
+            "common physical-XCD homes and no local reduction")
     if shared_early2:
         # The early2 schedule is validated on two operating points: the small
         # EP8 batches without local reduction, whose tiles are the same
@@ -457,7 +467,8 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         + ((("" if xcd_home else "_hr0") + ("" if shared_xcd_home else "_hs0")) if band_m > 1 and xcd_schedule else "")
         + (f"_qa{int(schedule_audit)}_qg{queue_grid_mult}" if band_m > 1 else "")
         + ("_wb0" if local_reduce_xcd_local else "")
-        + ("_sharedl2_early2of8_xcd1" if shared_early2 else
+        + ("_sharedl2_jointtail_xcd1" if shared_joint else
+           "_sharedl2_early2of8_xcd1" if shared_early2 else
            "_sharedl2_tail_xcd1" if shared_l2 else "")
     )
 
@@ -667,7 +678,8 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
             # Reuse compute LDS only between tiles, with WG barriers before
             # overwriting previous epilogue data and before reusing claim storage.
             claim_ptr = lds_typed_ptr(fx.Int32(0), T.i32)
-            # Every CTA visits all shared queues once, preserving their epoch.
+            # Legacy modes visit every shared queue once, preserving its epoch.
+            # jointtail visits eight combined queues without a second sweep.
             # XCD-local routed work must only visit home; other routed work may
             # visit all eight queues. The block-ID rule chooses shared-first CTAs.
             while attempt < fx.Int32((9 if local_reduce_xcd_local else 16) if shared_early2 else (1 if local_reduce_xcd_local and not shared_l2 else 8)):
@@ -688,7 +700,13 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
                 fx.barrier()
                 if tx_i32 == fx.Int32(0):
                     claim = fx.Int32(0)
-                    if const_expr(shared_l2):
+                    if const_expr(shared_joint):
+                        # [routed padded tickets | shared padded tickets]. Reuse
+                        # the per-forward-reset i32 head. The legacy shared i64
+                        # epoch stays untouched, including across mixed graphs.
+                        claim = fx.Int32(comm_ops.atomic_add_agent(
+                            arg_work_head + fx.Int64(queue) * fx.Int64(256), fx.Int32(1)))
+                    elif const_expr(shared_l2):
                         if shared_active:
                             claim = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
                                 shared_heads + fx.Int64(queue) * fx.Int64(64), fx.Int64(1))) % shared_period)
@@ -706,6 +724,11 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
                 current_m_blocks = total_m_blocks
                 if const_expr(shared_l2):
                     ticket = fx.Int32(rocdl.readfirstlane(T.i32, fx.Int32(ticket).ir_value()))
+                    if const_expr(shared_joint):
+                        # Ticket order is a claim priority, not a completion
+                        # barrier: shared can overlap already-claimed routed work.
+                        shared_active = ticket >= queue_size
+                        ticket = shared_active.select(ticket - queue_size, ticket)
                     current_queue_size = shared_active.select(fx.Int32(shared_queue_size), queue_size)
                     current_m_blocks = shared_active.select(fx.Int32(((max_tok + BM - 1) // BM)), total_m_blocks)
                 if ticket < current_queue_size:
@@ -736,7 +759,10 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
                             run_unit(unit_bx, m_block)
                 else:
                     next_attempt = attempt + fx.Int32(1)
-                    if const_expr(shared_l2 and not shared_early2):
+                    if const_expr(shared_joint):
+                        # One failed claim per CTA/combined queue, with no reset.
+                        attempt = next_attempt
+                    elif const_expr(shared_l2 and not shared_early2):
                         switch = (not shared_active) & (next_attempt == fx.Int32(1 if local_reduce_xcd_local else 8))
                         attempt = switch.select(fx.Int32(0), next_attempt)
                         shared_active = shared_active | switch

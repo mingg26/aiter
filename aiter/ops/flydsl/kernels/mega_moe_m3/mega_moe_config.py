@@ -212,6 +212,9 @@ class Stage1Config:
     shared_xcd_home: bool = True
 
 
+SHARED_L2_SCHEDULES = ("tail", "early2", "jointtail")
+
+
 @dataclass(frozen=True, slots=True)
 class Stage2Config:
     block_m: int
@@ -231,6 +234,7 @@ class Stage2Config:
     band_m: int = 1
     schedule_audit: bool = False
     # Compile-time shared L2 task order; ignored when shared L2 is disabled.
+    # jointtail shares one routed-first ticket space per N-panel queue.
     shared_schedule: str = "tail"
     # Seed of the per-CTA home queue under xcd_schedule: the physical XCD (the
     # default, giving B-panel affinity) or the CTA index. Seed only -- every CTA
@@ -240,7 +244,7 @@ class Stage2Config:
     shared_xcd_home: bool = True
 
     def __post_init__(self):
-        if self.shared_schedule not in ("tail", "early2"):
+        if self.shared_schedule not in SHARED_L2_SCHEDULES:
             raise ValueError(f"unsupported shared_schedule={self.shared_schedule!r}")
 
 

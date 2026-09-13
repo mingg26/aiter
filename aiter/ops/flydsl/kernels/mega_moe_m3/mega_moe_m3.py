@@ -399,7 +399,8 @@ class MegaMoEM3:
                 stage2=Stage2Config(
                     block_m=s2_block_m, block_n=s2_block_n, block_k=256, persist=True,
                     persist_cu=128, use_nt=tokens in (32, 64), queue_grid_mult=5,
-                    xcd_schedule=True, band_m=8, shared_schedule="early2"),
+                    xcd_schedule=True, band_m=8,
+                    shared_schedule="jointtail" if fused_shared else "early2"),
                 p2p_quant="none")
         # Measured EP8 512..8192 configuration. These sizes inherit the 8192
         # geometry verbatim -- the only per-size fields are the dispatch payload
