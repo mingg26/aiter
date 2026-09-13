@@ -395,6 +395,7 @@ class MegaMoEM3:
                     count_uniform_matrix=True, row_base_prefetch=True,
                     prefetch_b_before_a=True,
                     preplan_waves=4 if fused_shared else 0,
+                    shared_packed_heads=fused_shared,
                     skip_launch_barrier=False),
                 stage2=Stage2Config(
                     block_m=s2_block_m, block_n=s2_block_n, block_k=256, persist=True,
@@ -583,6 +584,7 @@ class MegaMoEM3:
             scalar_tile_row_base=config.scalar_tile_row_base,
             xcd_schedule=config.xcd_schedule, xcd_home=config.xcd_home,
             shared_xcd_home=config.shared_xcd_home, schedule_audit=config.schedule_audit,
+            shared_packed_heads=config.shared_packed_heads,
             swiglu_limit=self.swiglu_limit, swiglu_alpha=self.swiglu_alpha,
             swiglu_beta=self.swiglu_beta, stage2_work_head=stage2_work_head,
             shared_l13=0 if self._shared_l13 is None else self._shared_l13.data_ptr(),

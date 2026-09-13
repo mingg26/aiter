@@ -210,6 +210,8 @@ class Stage1Config:
     # unchanged and the default compiles to the same code object as before.
     xcd_home: bool = True
     shared_xcd_home: bool = True
+    # Independent shared/routed 16-bit fields; preserve shared-first issuance.
+    shared_packed_heads: bool = False
 
 
 SHARED_L2_SCHEDULES = ("tail", "early2", "jointtail")

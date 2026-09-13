@@ -101,6 +101,7 @@ def compile_mega_moe_stage1(
     xcd_schedule: bool = False, xcd_home: bool = True, shared_xcd_home: bool = True,
     shared_row_stride: int | None = None,
     schedule_audit: bool = False, reset_stage2_queue: bool = False, shared_l13: bool = False, shared_xcd: bool = False,
+    shared_packed_heads: bool = False,
 ):
     arch = str(get_rocm_arch() or "")
     if not arch.startswith("gfx95"):
@@ -215,6 +216,32 @@ def compile_mega_moe_stage1(
             assert N_TILES % 8 == 0 and payload_tile_ready and BAND_M > 1
     if schedule_audit:
         assert small_xcd or (sort_block_m == 128 and tile_n == 256)
+
+    shared_packed = bool(shared_packed_heads)
+    if shared_packed:
+        # Independent shared/routed counters in the low/high 16 bits of each
+        # existing i32 head, reset by the preceding preplan kernel every forward.
+        # Keep the legacy all-shared-queues then all-routed-queues claim order.
+        if not (preplanned and shared_l13 and shared_xcd and small_xcd
+                and not joint_work_flags and int(fuse_npes) == 8
+                and (model_dim, inter_dim) == (6144, 3072)
+                and int(fuse_mtpr) in SHARED_FUSED_MTPR_SMALL
+                and xcd_home and shared_xcd_home
+                and num_cu * grid_mult == 256):
+            raise ValueError(
+                f"shared_packed_heads requires the preplanned fused-shared small EP8 "
+                f"geometry, got preplanned={preplanned} shared_l13={shared_l13} "
+                f"shared_xcd={shared_xcd} small_xcd={small_xcd} "
+                f"joint_work_flags={joint_work_flags} npes={fuse_npes} "
+                f"dims=({model_dim},{inter_dim}) mtpr={fuse_mtpr} "
+                f"homes=({xcd_home},{shared_xcd_home}) grid={num_cu * grid_mult}")
+        max_shared_claims = 2 * ceildiv(int(fuse_mtpr), sort_block_m) + num_cu * grid_mult
+        max_routed_m = ceildiv(int(fuse_npes) * int(fuse_mtpr) * int(fuse_topk), sort_block_m) + experts_per_rank
+        max_routed_claims = ceildiv(max_routed_m, BAND_M) * (2 * BAND_M) + num_cu * grid_mult
+        # Include every CTA's failed exit. No low-field carry, high-field wrap,
+        # or sign bit: concurrent adds to either field cannot change the other.
+        assert max_shared_claims < (1 << 16)
+        assert max_routed_claims < (1 << 15)
 
     a_lds_size = sort_block_m * A_K_STEP_BYTES
     a_lds_i32 = a_lds_size // 4
@@ -331,6 +358,7 @@ def compile_mega_moe_stage1(
         + ("_shu1" if shared_l13 else "")
         + ("_shna2" if shared_l13 else "")
         + ("_shsmall1" if shared_l13 and small_xcd else "")
+        + ("_shpacked1" if shared_packed else "")
         # A batch larger than its sort block that the block does not divide counts
         # shared tiles with a ceiling and carries a short last tile. That changes
         # the code object, so it belongs in the name: the A-read bounds above were
@@ -704,6 +732,8 @@ def compile_mega_moe_stage1(
             comm_ops.fence_system_acquire()
 
         consumer_active = fx.Int32(1) == fx.Int32(1)
+        # Visit every shared queue before claiming routed work. This preserves
+        # shared ticket issuance priority, without a GEMM completion barrier.
         shared_active = fx.Boolean(True)
         work_scratch = fx.recast_iter(fx.Int32, a_buf.ptr)
         work_scratch_view = fx.make_view(
@@ -734,9 +764,12 @@ def compile_mega_moe_stage1(
         def _claim_routed(work_shard):
             local_work = fx.Int32(
                 comm_ops.atomic_add_agent(
-                    a_work_head + fx.Int64(work_shard) * fx.Int64(64), fx.Int32(1)
+                    a_work_head + fx.Int64(work_shard) * fx.Int64(64),
+                    fx.Int32((1 << 16) if shared_packed else 1)
                 )
             )
+            if const_expr(shared_packed):
+                local_work = local_work >> fx.Int32(16)
             if const_expr(small_xcd):
                 # Keep home=(expert*12+n)%8 unchanged, but alternate
                 # the two local N slots after each finite M band.
@@ -780,9 +813,13 @@ def compile_mega_moe_stage1(
                                 # CTA exhausts each queue exactly once.
                                 shared_small_m = (fuse_mtpr + sort_block_m - 1) // sort_block_m
                                 shared_limit = (shared_work_shard < fx.Int32(4)).select(fx.Int32(2 * shared_small_m), fx.Int32(shared_small_m))
-                                shared_period = fx.Int64(shared_limit) + fx.Int64(launch_grid_x)
-                                shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
-                                    shared_count_addr + fx.Int64(shared_work_shard) * fx.Int64(64), fx.Int64(1))) % shared_period)
+                                if const_expr(shared_packed):
+                                    shared_local = fx.Int32(comm_ops.atomic_add_agent(
+                                        a_work_head + fx.Int64(shared_work_shard) * fx.Int64(64), fx.Int32(1))) & fx.Int32(0xffff)
+                                else:
+                                    shared_period = fx.Int64(shared_limit) + fx.Int64(launch_grid_x)
+                                    shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
+                                        shared_count_addr + fx.Int64(shared_work_shard) * fx.Int64(64), fx.Int64(1))) % shared_period)
                                 shared_m = shared_local % fx.Int32(shared_small_m)
                                 shared_n = shared_work_shard + (shared_local // fx.Int32(shared_small_m)) * fx.Int32(8)
                                 shared_claim = (shared_local < shared_limit).select(
@@ -977,7 +1014,7 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
     joint_work_flags=False,
     preplanned=False,
     payload_chunk_rows=0, payload_tile_ready=False, payload_tile_publish_early=False, band_m=1, swiglu_limit=0.0,
-    swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, xcd_schedule=False, xcd_home=True, shared_xcd_home=True, schedule_audit=False, stage2_work_head=0, shared_l13=0, shared_xcd=False):
+    swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, xcd_schedule=False, xcd_home=True, shared_xcd_home=True, schedule_audit=False, stage2_work_head=0, shared_l13=0, shared_xcd=False, shared_packed_heads=0):
     launch = compile_mega_moe_stage1(
         model_dim=model_dim, inter_dim=inter_dim, rank=rank, experts_per_rank=experts_per_rank,
         fuse_npes=fuse_npes, fuse_topk=fuse_topk, fuse_cap=fuse_cap, fuse_mtpr=fuse_mtpr,
@@ -1007,6 +1044,7 @@ def run_mega_moe_stage1(out, x, w, scale_x, scale_w, sorted_token_ids, expert_id
         scalar_tile_row_base=scalar_tile_row_base,
         xcd_schedule=xcd_schedule, schedule_audit=schedule_audit,
         reset_stage2_queue=bool(stage2_work_head), shared_l13=bool(shared_l13), shared_xcd=bool(shared_xcd),
+        shared_packed_heads=bool(shared_packed_heads),
         swiglu_limit=swiglu_limit, swiglu_alpha=swiglu_alpha, swiglu_beta=swiglu_beta,
     )
     _run_compiled(
