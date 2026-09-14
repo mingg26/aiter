@@ -352,6 +352,7 @@ def compile_mega_moe_stage1(
         + "_asb1"
         + "_svb1"
         + "_scratchfix1"
+        + "_tb1_salate1"
         + ("_s2qr1" if reset_stage2_queue else "")
         + ("_sharedl13" if shared_l13 else "")
         + ("_shxcd1" if shared_xcd else "")
@@ -415,6 +416,8 @@ def compile_mega_moe_stage1(
             fx.ptr_store(Vec.from_elements([ticket64], fx.Int64), ticket_scratch)
         fx.barrier()
         ticket64 = Vec(ticket_view.load())[0]
+        # All waves must consume the ticket before A LDS is reused.
+        fx.barrier()
         generation = ticket64 // fx.Int64(launch_grid_x)
         ticket = fx.Int32(ticket64 - generation * fx.Int64(launch_grid_x))
         gate_addr = a_epoch_gate + fx.Int64(grid_epoch_slot * 4)

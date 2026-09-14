@@ -206,10 +206,6 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
                     b_row,
                     spn,
                 )
-                sa_next = a_scale.load_step(
-                    a_scale_lds,
-                    spn,
-                )
             else:
                 a_regs = a_gather.load_regs(
                     spn * fx.Int32(A_K_STEP_BYTES)
@@ -232,6 +228,9 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
                 load_next,
             )
             if const_expr(async_a_copy):
+                # Finish current MFMA before loading next-step A scales.
+                rocdl.sched_barrier(0)
+                sa_next = a_scale.load_step(a_scale_lds, spn)
                 wait_lds_barrier(
                     NUM_ACC_N * _PACK
                     + NUM_B_SCALE
