@@ -20,6 +20,7 @@ from .mega_moe_config import (
     SHARED_SMALL_SORT_BLOCK_M,
     SHARED_FUSED_MTPR_LARGE,
     SHARED_FUSED_MTPR_SMALL,
+    SBM128_PATHS,
     _STAGE1_OVERRIDE_ENV,
     MegaMoEConfig,
     Stage1Config,
@@ -102,6 +103,14 @@ class MegaMoEM3:
         self.epr = int(experts // world_size)
         self.topk = int(topk)
         self.mtpr = int(max_tok_per_rank)
+        self._sbm128_scope = (
+            shared_w13 is not None and shared_w2 is not None and bool(shared_xcd_schedule)
+            and (self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk)
+                == (8, 16, 6144, 3072, 4)
+            and self.mtpr in SBM128_PATHS
+            and not self.local_reduce and not self.local_reduce_xcd_local
+            and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())
+        )
         self.quant = "a8w8"
         self.swiglu_limit = float(swiglu_limit)
         # SwiGLU-OAI constants; MiniMax-M3 uses alpha=1.702, beta=1.0. Note the
@@ -149,8 +158,8 @@ class MegaMoEM3:
             self._shared_a2_scale = torch.empty(self.mtpr * (self.inter_dim // 32) + 8192, device=self.dev, dtype=torch.uint8)
             # The stride Stage1 divides the local batch by, taken from the one table
             # in mega_moe_config so it cannot drift from the selector's sort block.
-            shared_tile_m = SHARED_SMALL_SORT_BLOCK_M.get(self.mtpr, 128)
-            assert shared_tile_m == (small_sort_block_m(self.mtpr) if self.mtpr in SHARED_FUSED_MTPR_SMALL else 128), (
+            shared_tile_m = 128 if self._sbm128_scope else SHARED_SMALL_SORT_BLOCK_M.get(self.mtpr, 128)
+            assert shared_tile_m == (128 if self._sbm128_scope else small_sort_block_m(self.mtpr) if self.mtpr in SHARED_FUSED_MTPR_SMALL else 128), (
                 f"row table stride {shared_tile_m} disagrees with the selector's sort block")
             # Stage1 divides the local batch by its sort block to count shared
             # tiles, so it is given this stride and asserts the two agree.
@@ -365,7 +374,8 @@ class MegaMoEM3:
             # Fused shared requires preplanning (Stage1 asserts it), so the
             # 256-token entry keeps preplan_waves=0 only on the unfused path.
             fused_shared = self._shared_l13 is not None
-            sort_block_m = SHARED_SMALL_SORT_BLOCK_M[tokens]
+            sbm128_path = SBM128_PATHS[tokens] if self._sbm128_scope and tokens == self.mtpr else "generic"
+            sort_block_m = 128 if sbm128_path != "generic" else SHARED_SMALL_SORT_BLOCK_M[tokens]
             s2_block_m = 64 if tokens == 64 else 32
             #   stage2.block_n: 256 halves how often Stage2 re-reads its A2 panel
             #     and is the measured optimum at 16, 32, 96 and 128 (0.6-1.0% on the
@@ -386,7 +396,8 @@ class MegaMoEM3:
             s2_block_n = 128 if tokens in (64, 256) else 256
             config = MegaMoEConfig(
                 stage1=Stage1Config(
-                    sort_block_m=sort_block_m, tile_n=512, tile_k=256, num_waves=8,
+                    sort_block_m=sort_block_m, tile_n=256 if sbm128_path != "generic" else 512,
+                    tile_k=256, num_waves=8, sbm128_path=sbm128_path,
                     grid_mult=1, num_dispatch_cu=32 if tokens == 256 else 48,
                     mfma_amajor=True,
                     async_a_copy=True, use_tile_resource=False,
@@ -548,8 +559,20 @@ class MegaMoEM3:
         if self._shared_l13 is not None and cur_tok != self.mtpr:
             raise ValueError("shared L13 requires the full configured local batch")
         op = self._s1_op
+        stage1_runner = self._s1_mega
+        specialized_kwargs = {}
+        if config.sbm128_path != "generic":
+            if not self._sbm128_scope or cur_tok != self.mtpr:
+                raise ValueError("Specialized SBM128 requires the validated full EP8 shared batch")
+            if config.sbm128_path == "m16":
+                from .sbm128_m16.mega_moe_stage1 import run_mega_moe_stage1 as stage1_runner
+            elif config.sbm128_path == "tiered96":
+                from .sbm128_tiered.mega_moe_stage1 import run_mega_moe_stage1 as stage1_runner
+            else:
+                raise ValueError(f"Uninstalled SBM128 path {config.sbm128_path!r}")
+            specialized_kwargs["skip_empty_m16"] = True
         # fmt: off
-        self._s1_mega(
+        stage1_runner(
             self._s1_out, self._s1_rx, self._s1_w1, self._s1_scale_i32, self._s1_w1_scale,
             op.tile_row_base, op.sorted_expert_ids, op.num_valid, self._s1_osd, fx.Int32(self._s1_nvm),
             fx.Int64(self._s1_disp.data_ptr()), fx.Int32(cur_tok), fx.Int64(x.data_ptr()),
@@ -589,7 +612,8 @@ class MegaMoEM3:
             swiglu_beta=self.swiglu_beta, stage2_work_head=stage2_work_head,
             shared_l13=0 if self._shared_l13 is None else self._shared_l13.data_ptr(),
             shared_row_stride=getattr(self, '_shared_row_stride', None),
-            shared_xcd=self._shared_l13 is not None and self._shared_xcd_schedule)
+            shared_xcd=self._shared_l13 is not None and self._shared_xcd_schedule,
+            **specialized_kwargs)
         # fmt: on
         self._s2_topk_ids = topk_ids
         self._s1_active_tile_m = config.sort_block_m
@@ -793,6 +817,7 @@ class MegaMoEM3:
             xcd_home=stage2.xcd_home, shared_xcd_home=stage2.shared_xcd_home,
             band_m=stage2.band_m, schedule_audit=stage2.schedule_audit, queue_grid_mult=stage2.queue_grid_mult,
             shared_schedule=stage2.shared_schedule,
+            sbm128_rollout=self._sbm128_scope and config.stage1.sbm128_path != "generic",
             work_head=self._g2_work_head.data_ptr(), local_reduce=self.local_reduce,
             local_reduce_xcd_local=self.local_reduce_xcd_local,
             staging_ptr=self._g2_staging.data_ptr() if self.local_reduce else 0,

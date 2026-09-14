@@ -56,6 +56,10 @@ def small_sort_block_m(mtpr: int) -> int:
     """Stage1's sort block for a small-regime batch, and the stride of the shared
     row table MegaMoEM3 builds from it.
 
+    This is the generic fallback rule. The validated EP8 fused-shared rollout
+    separately selects SBM128 for the exact batches in SBM128_PATHS, using the
+    same scope guard for the selector and shared-row-table allocation.
+
     The block has to be large enough to hold a whole expert's rows, not merely
     large enough to be efficient. Stage1 pads each expert up to a multiple of the
     block, so its tile count is sum_e ceil(rows_e / block), and rows_e is random:
@@ -97,6 +101,7 @@ SHARED_FUSED_MTPR = SHARED_FUSED_MTPR_SMALL + SHARED_FUSED_MTPR_LARGE
 # 64, guarded there against the shared row table stride) and fixed in the large.
 SHARED_FUSED_S1_GEOMETRY = {
     "small": dict(tile_n=512, num_waves=8, band_m=4),
+    "small_sbm128": dict(tile_n=256, num_waves=8, band_m=4),
     "large": dict(sort_block_m=128, tile_n=256, num_waves=8, band_m=4),
 }
 
@@ -153,6 +158,20 @@ for _t in SHARED_FUSED_MTPR_SMALL:
         _sbm = SHARED_SMALL_SORT_BLOCK_M[_t]
         SHARED_L2_S2_SHAPES[_t] = ((128, 256, 32, _sbm), (256, 256, 32, _sbm))
 del _t, _sbm
+
+# Validated rollout sizes only. The generic shared-row table stays unchanged;
+# MegaMoEM3 opts into SBM128 only for the measured EP8 fused-shared workload.
+SBM128_PATHS = {
+    200: "m16", 208: "m16", 216: "m16",
+    224: "tiered96", 232: "tiered96", 240: "tiered96",
+    248: "tiered96", 256: "tiered96",
+}
+for _t in SBM128_PATHS:
+    SHARED_L2_S2_SHAPES[_t] = tuple(dict.fromkeys((
+        *SHARED_L2_S2_SHAPES[_t],
+        (128 if _t == 256 else 256, 256, 32, 128),
+    )))
+del _t
 
 
 def shared_l2_s2_shape_ok(max_tok: int, BM: int, BN: int, BK: int, SBM: int) -> bool:
@@ -212,6 +231,14 @@ class Stage1Config:
     shared_xcd_home: bool = True
     # Independent shared/routed 16-bit fields; preserve shared-first issuance.
     shared_packed_heads: bool = False
+    # Isolated measured SBM128 implementation; never inferred from the bucket.
+    sbm128_path: str = "generic"
+
+    def __post_init__(self):
+        if self.sbm128_path not in ("generic", "m16", "tiered96"):
+            raise ValueError(f"Unknown SBM128 path {self.sbm128_path!r}")
+        if self.sbm128_path != "generic" and (self.sort_block_m, self.tile_n) != (128, 256):
+            raise ValueError("Specialized SBM128 paths require SBM128/N256")
 
 
 SHARED_L2_SCHEDULES = ("tail", "early2", "jointtail")
