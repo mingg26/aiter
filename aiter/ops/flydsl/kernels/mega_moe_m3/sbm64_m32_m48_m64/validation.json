@@ -1,0 +1,117 @@
+{
+  "batch": 136,
+  "production_base": "e5e830a664f44dde0da3f4ff2cf9027328e56aa0",
+  "source": ".scratch/b136_sbm64_m48_20260914_v1/candidate/fixed/mega_moe_m3",
+  "source_identity": {
+    "gemm1.py": {
+      "source_sha256": "3593c9f4c2c9038a8754780b9f911dc07080ba81d1c48334ef56d206aef031ea",
+      "published_sha256": "cc09c12d47604bf92832cf544ae16390a1973cf90df323add2ec7cc927602911",
+      "ast_equal_except_imports": true
+    },
+    "gemm_util.py": {
+      "source_sha256": "99d62d106e7bc8b6ac4e36313315cef42bde5c31027df401f4ae75bb824c3ed5",
+      "published_sha256": "99d62d106e7bc8b6ac4e36313315cef42bde5c31027df401f4ae75bb824c3ed5",
+      "ast_equal_except_imports": true
+    },
+    "mega_moe_stage1.py": {
+      "source_sha256": "f3cfdaa5e5fa828315debc2a1813e3d6bac6c4784ccc41adc67e404cac26bac1",
+      "published_sha256": "a18cb1d964046adaae5b9a9e3fee6c8fea45ca7764031ccf9cbb1f3b2c919b75",
+      "ast_equal_except_imports": true
+    }
+  },
+  "default_enabled": false,
+  "resources": {
+    "vgpr": 202,
+    "sgpr": 106,
+    "vgpr_spill": 0,
+    "sgpr_spill": 0,
+    "scratch_bytes": 0,
+    "lds_bytes": 45056
+  },
+  "comparisons": {
+    "m48_ba": {
+      "full_forward": {
+        "A_us": 286.2007427215576,
+        "B_us": 275.3074049949646,
+        "ratio": 0.9619389638203288,
+        "ci95": [
+          0.9604456355379576,
+          0.9634553210377796
+        ],
+        "faster_pairs": 12
+      },
+      "null": {
+        "ratio": 0.9990788241798139,
+        "ci95": [
+          0.9980327664920073,
+          1.0000421107130637
+        ]
+      }
+    },
+    "m48_ab": {
+      "full_forward": {
+        "A_us": 286.24430497487384,
+        "B_us": 275.52873134613037,
+        "ratio": 0.9625668000343065,
+        "ci95": [
+          0.9614955851872596,
+          0.9636138245209583
+        ],
+        "faster_pairs": 12
+      },
+      "null": {
+        "ratio": 0.998745407237666,
+        "ci95": [
+          0.9975142466236793,
+          0.9999412515429379
+        ]
+      }
+    },
+    "adjacent_ba": {
+      "full_forward": {
+        "A_us": 280.32895644505817,
+        "B_us": 276.1884053548177,
+        "ratio": 0.9852298667484624,
+        "ci95": [
+          0.9834470299736261,
+          0.98690164861591
+        ],
+        "faster_pairs": 12
+      },
+      "null": {
+        "ratio": 0.9997686501101506,
+        "ci95": [
+          0.9978542994615974,
+          1.0010948801498603
+        ]
+      }
+    },
+    "adjacent_ab": {
+      "full_forward": {
+        "A_us": 280.7514723141988,
+        "B_us": 276.394727230072,
+        "ratio": 0.9844824284672715,
+        "ci95": [
+          0.9827076400925284,
+          0.9861764229008171
+        ],
+        "faster_pairs": 12
+      },
+      "null": {
+        "ratio": 1.000391517243252,
+        "ci95": [
+          0.9993009743189205,
+          1.0014463044104465
+        ]
+      }
+    }
+  },
+  "main_baseline": "original ticket-fixed single M64/N512",
+  "adjacent_baseline": "M32/M64 botharbd N256",
+  "protocol": "12 balanced pairs per run;400 measured replays in chunks<=200;64settle;6+6null;16 probes;graph512;both capture directions;all8 GPU ISA matches offline;quick screening,not strict stability certification",
+  "isa_note": "All branches cache current A before next DMA, use K-half B retirement and late A scales. M48 rotated CFG has12 MFMA and12 A reads, conditional tail DMA forwaves0-3. Existing M32/M64 instruction/constant/wait sequences match after erasing register identifiers; allocation changed,not byte-identical.",
+  "M32_ni": "deferred;not implemented",
+  "published_rank6_isa_sha256": "87e674d44d898fdcc7bf007dda84446546bb647d9ece5518142e4b3d8ef77524",
+  "published_rank6_isa_byte_identical": true,
+  "k3_final_review": "PASS; required migration ISA identity gate passed before commit"
+}
