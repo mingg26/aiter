@@ -9,9 +9,9 @@ Valid rows <=32 use M32, 33-48 use M48, and 49-64 use M64. All three paths
 cache current A before next-A DMA, retire B by K128 half, and load A scales
 late. M48 uses ceiling division for its two logical scale groups, copies
 48 rows with the SBM128 wave-uniform tail, and pads two accumulator vectors
-with zero for the common M64 epilogue. Empty rows48-63 now skip both
-SwiGLU/LDS production and quantization under matching guards; barriers
-remain unconditional. No ni retirement is added.
+with zero for the common M64 epilogue. Empty rows48-63 and rows32-47 skip both
+SwiGLU/LDS production and quantization under matching >48 and >32 guards;
+barriers remain unconditional. No ni retirement is added.
 
 Scope: b136, EP8, H6144/I3072, top4, 128 experts, shared L13/L2,
 physical SBM64, N256, K256, eight waves and the frozen b136 scheduling setup.
@@ -22,9 +22,10 @@ complete route/quant/S1/S2/combine operator.
 All eight ranks compile at 202 VGPR / 106 SGPR, zero spill/scratch,
 45056 bytes LDS. M32/M64 instruction and wait sequences match the previous
 candidate after register identifiers are erased; register allocation changed.
-All four runs pass 16 correctness probes including 33/48/49 rows, graph512,
-independent math, source identity, and all-eight GPU/offline ISA equality.
-K3 reviewed the design, implementation and all four results. After import
+The middle16 candidate passes 16 correctness probes including 32/33/48/49
+rows, graph512, independent math, source identity, and all-eight GPU/offline
+ISA equality in both capture orders. K3 reviewed the design, implementation,
+direct comparisons and diagnostic controls. After import
 path migration, rank6 ISA is byte-identical to the GPU-tested source.
 
 The following historical M48-addition comparisons used the original
@@ -80,3 +81,30 @@ while steady-loop opcode/constants/waits match after register IDs are erased.
 Both16-probe/graph512/all8 GPU-ISA/source checks pass. These are quick
 screening results; confidence intervals and self-null diagnostics are in
 `validation.json`. No null subtraction or causal branch-cost claim.
+
+## Additional middle16 producer and consumer guards
+
+Retained by user decision after correctness and diagnostic reviews.
+The original two-direction performance criterion was not met, so a stable
+speedup is not claimed. The last16 checkpoint remains the performance control.
+Both comparisons directly use the previous fastest last16-guard candidate
+(63091d668). All8 ranks remain202VGPR/106SGPR,zero V/S spill,zero scratch,
+LDS45056; register allocation changes while steady-loop opcode/constants/
+waits match after register IDs are erased.
+
+| Run | A us | B us | B/A | Null B/A |
+|---|---:|---:|---:|---:|
+| mid_ba | 275.307 | 274.913 | 0.998571555 | 1.000285655 |
+| mid_ab | 274.296 | 273.972 | 0.998815769 | 1.001477624 |
+
+Both16-probe/graph512/all8 GPU-ISA/source checks pass. These are quick
+screening results; confidence intervals and self-null diagnostics are in
+`validation.json`. No null subtraction or causal branch-cost claim.
+
+The follow-up no-skip control changes only two ISA compare immediates
+(all 8 ranks). At equal work, the new structure changes forward latency by
++0.079% / -0.023%; enabling the skip gives nominal gains of 0.166% / 0.046%.
+All four confidence intervals include zero change. No substantial structure
+penalty has been demonstrated, and the small gain is not yet resolved.
+The middle16 implementation is retained in this experimental entry.
+See `validation.json` for the explicit retention basis and uncertainty.

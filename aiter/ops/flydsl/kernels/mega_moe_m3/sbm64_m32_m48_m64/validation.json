@@ -1,7 +1,7 @@
 {
   "batch": 136,
   "production_base": "e5e830a664f44dde0da3f4ff2cf9027328e56aa0",
-  "source": ".scratch/b136_sbm64_epi_tail16_20260914_v1/candidate/fixed/mega_moe_m3",
+  "source": ".scratch/b136_sbm64_epi_mid16_20260914_v1/candidate/fixed/mega_moe_m3",
   "source_identity": {
     "gemm1.py": {
       "source_sha256": "3593c9f4c2c9038a8754780b9f911dc07080ba81d1c48334ef56d206aef031ea",
@@ -9,13 +9,13 @@
       "ast_equal_except_imports": true
     },
     "gemm_util.py": {
-      "source_sha256": "4a10da3c92a21f5a344499999ef805062b99eab457734b0c4cfdfa50dd3a2860",
-      "published_sha256": "4a10da3c92a21f5a344499999ef805062b99eab457734b0c4cfdfa50dd3a2860",
+      "source_sha256": "9cbb641dd71852dec70828b8b0ee7f4262c8b3789bd4328363a3eeffb9cd3992",
+      "published_sha256": "9cbb641dd71852dec70828b8b0ee7f4262c8b3789bd4328363a3eeffb9cd3992",
       "ast_equal_except_imports": true
     },
     "mega_moe_stage1.py": {
-      "source_sha256": "e9e9f9873e3898bb670a51dabf4fb6d839015a676dd78c82fe39d681e269395d",
-      "published_sha256": "6b8acf0a3410a7e38eb417eab34ea44f44ac35aa4d18460bd7a8b9748a8482dc",
+      "source_sha256": "82db3095a7803b414c3091a323fa741ca955b93067532489a1199a8e3bc97374",
+      "published_sha256": "1a046186bab1383e664ae5bf841d0824cbe8b5ecb63d1479eb771ab355b91d30",
       "ast_equal_except_imports": true
     }
   },
@@ -112,7 +112,7 @@
   "isa_note": "All branches cache current A before next DMA, use K-half B retirement and late A scales. M48 rotated CFG has12 MFMA and12 A reads, conditional tail DMA forwaves0-3. Existing M32/M64 instruction/constant/wait sequences match after erasing register identifiers; allocation changed,not byte-identical.",
   "M32_ni": "deferred;not implemented",
   "published_rank6_isa_byte_identical": true,
-  "k3_final_review": "epi_tail16 final PASS; native fork rank6 ISA byte identity PASS",
+  "k3_final_review": "Mid16 correctness and four no-skip diagnostic comparisons reviewed. User retained the change with speedup unresolved. Native import path rank6 ISA matches tested candidate exactly.",
   "quant_tail16": {
     "retained": false,
     "scope": "Last16 empty row quantization only",
@@ -283,5 +283,181 @@
     "native_rank6_isa_byte_identical": true,
     "native_rank6_isa_sha256": "d37e47ed0b3728230ca8ca3578bf3caaa5757dad321295e83129a6324dc36e3a"
   },
-  "published_rank6_isa_sha256": "d37e47ed0b3728230ca8ca3578bf3caaa5757dad321295e83129a6324dc36e3a"
+  "epi_mid16": {
+    "retained": true,
+    "source": ".scratch/b136_sbm64_epi_mid16_20260914_v1/candidate/fixed/mega_moe_m3",
+    "scope": "Additional middle16 common epilogue producer and consumer guards",
+    "comparisons": {
+      "mid_ba": {
+        "full_forward": {
+          "A_us": 275.30664285024005,
+          "B_us": 274.91341670354205,
+          "ratio": 0.998571555258769,
+          "ci95": [
+            0.9974552722249177,
+            0.9996038956584129
+          ],
+          "faster_pairs": 9
+        },
+        "null": {
+          "ratio": 1.0002856553227515,
+          "ci95": [
+            0.9989949959777539,
+            1.0017236902962507
+          ]
+        }
+      },
+      "mid_ab": {
+        "full_forward": {
+          "A_us": 274.29607311884564,
+          "B_us": 273.9715615908305,
+          "ratio": 0.9988157686478413,
+          "ci95": [
+            0.9973052197425523,
+            1.00039261300757
+          ],
+          "faster_pairs": 8
+        },
+        "null": {
+          "ratio": 1.0014776242814243,
+          "ci95": [
+            1.000121666000902,
+            1.003096520179154
+          ]
+        }
+      }
+    },
+    "resources": {
+      "vgpr": 202,
+      "sgpr": 106,
+      "spill": 0,
+      "scratch": 0,
+      "lds": 45056
+    },
+    "validation": "Both16-probe/graph512/full-forward/paired-profile/actual8rankISA/source reviews pass",
+    "isa": "All8 main-loop opcode/constant/wait sequences equal after register IDs erased; physical allocation changed",
+    "limits": "Both capture directions full-forward ratio CI upper<1, disclose null; quick screening not strict stability",
+    "k3_review": "/mnt/shared/homes/ming/msa/.scratch/b136_sbm64_epi_mid16_20260914_v1/review/k3_final.log",
+    "status": "retained_by_user_after_diagnosis",
+    "candidate_discarded": false,
+    "diagnosis": {
+      "source": ".scratch/b136_sbm64_epi_mid16_noskip_20260914_v1",
+      "status": "candidate_preserved_not_promoted",
+      "control": "All8 full ISA identical except kernel tag and two producer-side compare immediates",
+      "results": [
+        {
+          "run": "cost_ba",
+          "comparison": "noskip / last16 baseline",
+          "A_us": 274.5643091201782,
+          "B_us": 274.78036244710285,
+          "ratio": 1.000785780803595,
+          "ci95": [
+            0.9997794854283016,
+            1.001890429268768
+          ],
+          "faster_pairs": 5,
+          "null": {
+            "ratio": 0.9992624363167506,
+            "ci95": [
+              0.998118277528711,
+              1.0002527464819877
+            ]
+          },
+          "skip_gain_pct": null,
+          "skip_gain_ci95_pct": null
+        },
+        {
+          "run": "cost_ab",
+          "comparison": "noskip / last16 baseline",
+          "A_us": 274.65646266937256,
+          "B_us": 274.59347168604535,
+          "ratio": 0.999769857528061,
+          "ci95": [
+            0.9983395706666448,
+            1.0011893891765369
+          ],
+          "faster_pairs": 6,
+          "null": {
+            "ratio": 1.000201476183174,
+            "ci95": [
+              0.9986711152572372,
+              1.0019280881776789
+            ]
+          },
+          "skip_gain_pct": null,
+          "skip_gain_ci95_pct": null
+        },
+        {
+          "run": "saving_ba",
+          "comparison": "noskip / mid16 skip",
+          "A_us": 272.6829711596171,
+          "B_us": 273.13723007837933,
+          "ratio": 1.0016668514817113,
+          "ci95": [
+            0.9995055521968701,
+            1.003825342738285
+          ],
+          "faster_pairs": 2,
+          "null": {
+            "ratio": 0.9995249445197568,
+            "ci95": [
+              0.9981021978028922,
+              1.0007277522523654
+            ]
+          },
+          "skip_gain_pct": 0.1664077711312495,
+          "skip_gain_ci95_pct": [
+            -0.04946924027016131,
+            0.3810765255089166
+          ]
+        },
+        {
+          "run": "saving_ab",
+          "comparison": "noskip / mid16 skip",
+          "A_us": 274.592403570811,
+          "B_us": 274.7174294789632,
+          "ratio": 1.000459842006,
+          "ci95": [
+            0.9982403499924929,
+            1.0022684307505823
+          ],
+          "faster_pairs": 4,
+          "null": {
+            "ratio": 0.9994948602046991,
+            "ci95": [
+              0.9972983193865617,
+              1.0012844720891425
+            ]
+          },
+          "skip_gain_pct": 0.045963064852061475,
+          "skip_gain_ci95_pct": [
+            -0.17627518337846038,
+            0.22632966189342074
+          ]
+        }
+      ],
+      "conclusion": "No significant combined structure/guard overhead detected; enabled-skip full-forward gain remains below reliable resolution. No candidate discard."
+    },
+    "retention_basis": "User explicitly requested retention after correctness/ISA/GPU/diagnostic reviews. Stable speedup is not established; original two-direction CI criterion was not met.",
+    "performance_acceptance_passed": false,
+    "control_baseline_commit": "63091d66836dc32f6106d555858476ccd452c7a2"
+  },
+  "pre_epi_mid16_source_identity": {
+    "gemm1.py": {
+      "source_sha256": "3593c9f4c2c9038a8754780b9f911dc07080ba81d1c48334ef56d206aef031ea",
+      "published_sha256": "cc09c12d47604bf92832cf544ae16390a1973cf90df323add2ec7cc927602911",
+      "ast_equal_except_imports": true
+    },
+    "gemm_util.py": {
+      "source_sha256": "4a10da3c92a21f5a344499999ef805062b99eab457734b0c4cfdfa50dd3a2860",
+      "published_sha256": "4a10da3c92a21f5a344499999ef805062b99eab457734b0c4cfdfa50dd3a2860",
+      "ast_equal_except_imports": true
+    },
+    "mega_moe_stage1.py": {
+      "source_sha256": "e9e9f9873e3898bb670a51dabf4fb6d839015a676dd78c82fe39d681e269395d",
+      "published_sha256": "6b8acf0a3410a7e38eb417eab34ea44f44ac35aa4d18460bd7a8b9748a8482dc",
+      "ast_equal_except_imports": true
+    }
+  },
+  "published_rank6_isa_sha256": "fa33724491e5483190474cd9e2be4a8625a02978007da47a35b3342282aaefde"
 }

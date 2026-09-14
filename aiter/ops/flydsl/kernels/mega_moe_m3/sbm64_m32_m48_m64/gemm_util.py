@@ -819,7 +819,13 @@ class SiluQuantEpilogue:
         # Retire the optional accumulator group before the common lower rows,
         # following SBM128's shared-epilogue ordering.
         combine_store_tail()
-        store_rows(0, 3, self._combine(acc, first=0, last=3))
+
+        @flyc.jit
+        def combine_store_middle():
+            if tile_valid_rows > fx.Int32(32):
+                store_rows(2, 3, self._combine(acc, first=2, last=3))
+        combine_store_middle()
+        store_rows(0, 2, self._combine(acc, first=0, last=2))
         gpu.barrier()
 
         c64 = fx.Int32(64)
@@ -898,7 +904,14 @@ class SiluQuantEpilogue:
                     e8m0_i8 = e8m0_v.to(fx.Int8)
                     _buffer_store(self._out_scale_rsrc, byte_off, e8m0_i8, fx.Int8)
 
-        quant_rows(0, 3)
+        quant_rows(0, 2)
+
+        @flyc.jit
+        def quant_middle():
+            # Match the middle16 producer before the unconditional LDS barrier.
+            if tile_valid_rows > fx.Int32(32):
+                quant_rows(2, 3)
+        quant_middle()
 
         @flyc.jit
         def quant_tail():
