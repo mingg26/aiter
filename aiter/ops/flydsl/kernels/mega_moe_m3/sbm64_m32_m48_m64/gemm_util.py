@@ -727,10 +727,11 @@ class SiluQuantEpilogue:
         emu = (g * fx.Float32(-1.4426950408889634 * self._swiglu_alpha)).exp2()
         return g * (fx.Float32(1.0) / (fx.Float32(1.0) + emu))
 
-    def _combine(self, acc):
+    def _combine(self, acc, first=0, last=None):
         gui_n = self._num_acc_n // _PACK
         out = []
-        for mi in range_constexpr(self._m_repeat):
+        last_m = self._m_repeat if last is None else last
+        for mi in range_constexpr(first, last_m):
             for ni in range_constexpr(gui_n):
                 g_idx = mi * self._num_acc_n + ni * _PACK
                 out.append(self._silu_mul(acc[g_idx], acc[g_idx + 1]))
@@ -770,8 +771,10 @@ class SiluQuantEpilogue:
         return finish(elems)
 
     def store(self, acc, tile_i32, tile_row_base_i32, n_tile_base_i32):
-        combined = self._combine(acc)
-        n_per = len(combined) // self._m_repeat
+        # Read once; producer and consumer share the same CTA-uniform count.
+        tile_valid_rows = fx.Int32(rocdl.readfirstlane(
+            T.i32, _buffer_load(self._tvr_rsrc, tile_i32, fx.Int32).ir_value()))
+        n_per = self._num_acc_n // _PACK
         if self._out_tensor is not None:
             tile_iter = fx.add_offset(
                 fx.get_iter(self._out_tensor),
@@ -798,15 +801,25 @@ class SiluQuantEpilogue:
         rbase = wave * fx.Int32(self._m_repeat * 16) if self._waves_along_m else fx.Int32(0)
         cptr = self._lds_out.ptr
 
-        for mi in range_constexpr(self._m_repeat):
-            for nj in range_constexpr(n_per):
-                v4 = Vec(combined[mi * n_per + nj])
-                col = cbase + fx.Int32(nj * 16) + l16
-                for ii in range_constexpr(4):
-                    row = rbase + fx.Int32(mi * 16) + ld4 + fx.Int32(ii)
-                    idx = row * fx.Int32(cs_tile_n) + col
-                    ptr = self._lds_out.at(idx, mi >= self._m_repeat // 2)
-                    fx.ptr_store(Vec.from_elements([v4[ii]], fx.Float32), ptr)
+        def store_rows(first, last, values):
+            for mi in range_constexpr(first, last):
+                for nj in range_constexpr(n_per):
+                    v4 = Vec(values[(mi - first) * n_per + nj])
+                    col = cbase + fx.Int32(nj * 16) + l16
+                    for ii in range_constexpr(4):
+                        row = rbase + fx.Int32(mi * 16) + ld4 + fx.Int32(ii)
+                        idx = row * fx.Int32(cs_tile_n) + col
+                        ptr = self._lds_out.at(idx, mi >= self._m_repeat // 2)
+                        fx.ptr_store(Vec.from_elements([v4[ii]], fx.Float32), ptr)
+
+        @flyc.jit
+        def combine_store_tail():
+            if tile_valid_rows > fx.Int32(48):
+                store_rows(3, 4, self._combine(acc, first=3, last=4))
+        # Retire the optional accumulator group before the common lower rows,
+        # following SBM128's shared-epilogue ordering.
+        combine_store_tail()
+        store_rows(0, 3, self._combine(acc, first=0, last=3))
         gpu.barrier()
 
         c64 = fx.Int32(64)
@@ -819,70 +832,79 @@ class SiluQuantEpilogue:
         m_reps = self._sort_block_m // rows_per_iter
         n_reps = cs_tile_n // (NLANE * EVEC)
         out_tile_base = n_tile_base_i32 // fx.Int32(2) - cbase
-        if const_expr(self._tvr_rsrc is not None):
-            # This tile's real (non-padding) row count. Wave-uniform like the
-            # A-read bound in do_tile: every lane of a wave stores the same tile.
-            tile_valid_rows = fx.Int32(rocdl.readfirstlane(
-                T.i32, _buffer_load(self._tvr_rsrc, tile_i32, fx.Int32).ir_value()))
+        assert (self._sort_block_m, self._num_waves, rows_per_iter, m_reps) == (64, 8, 16, 4)
+        assert self._tvr_rsrc is not None and self._always_valid and not self._waves_along_m
 
-        for mr in range_constexpr(m_reps):
-            row = fx.Int32(mr * rows_per_iter) + mlane
-            slot = tile_row_base_i32 + row
-            row_g = tile_i32 * fx.Int32(self._sort_block_m) + row
-            if const_expr(self._always_valid):
-                valid = fx.Boolean(True)
-                out_row_base = (
-                    row * fx.Int32(self._inter_dim)
-                    if self._out_tensor is not None
-                    else row_g * fx.Int32(self._inter_dim)
-                )
-            else:
-                tok = _buffer_load(self._sorted_rsrc, slot, fx.Int32)
-                valid = tok < fx.Int32(self._tokens)
-                out_row_base = slot * fx.Int32(self._inter_dim)
-            if const_expr(self._tvr_rsrc is not None):
-                # A padding row lies inside the whole-buffer num_records, so
-                # without this its store lands for real. Marking it invalid sends
-                # it to the out-of-range offset below, which num_records drops --
-                # the same redirect the Stage2 scatter uses.
-                valid = (row < tile_valid_rows) if const_expr(self._always_valid) else valid & (row < tile_valid_rows)
-            for nr in range_constexpr(n_reps):
-                col0 = fx.Int32(nr * NLANE * EVEC) + nlane * fx.Int32(EVEC)
-                idx = row * fx.Int32(cs_tile_n) + col0
-                f32_iter = fx.recast_iter(fx.Float32, self._lds_out.at(idx, mr >= m_reps // 2))
-                frag = fx.make_view(f32_iter, fx.make_layout(EVEC, 1)).load()
-                v0 = frag[0]
-                v1 = frag[1]
-                a0 = v0.maximumf(fx.Float32(0.0) - v0)
-                a1 = v1.maximumf(fx.Float32(0.0) - v1)
-                m = a0.maximumf(a1)
-                for off in (1, 2, 4, 8):
-                    m = m.maximumf(m.shuffle_xor(fx.Int32(off), c64))
-                max_rounded = (m.bitcast(fx.Int32) + fx.Int32(0x400000)) & fx.Int32(0xFF800000)
-                _e = (max_rounded >> fx.Int32(23)) - fx.Int32(8)
-                e8m0_v = (_e > fx.Int32(0)).select(_e, fx.Int32(0))
-                quant_scale = ((fx.Int32(254) - e8m0_v) << fx.Int32(23)).bitcast(fx.Float32)
-                gcol = out_tile_base + col0
+        @flyc.jit
+        def quant_rows(first, last):
+            for mr in range_constexpr(first, last):
+                row = fx.Int32(mr * rows_per_iter) + mlane
+                slot = tile_row_base_i32 + row
+                row_g = tile_i32 * fx.Int32(self._sort_block_m) + row
+                if const_expr(self._always_valid):
+                    valid = fx.Boolean(True)
+                    out_row_base = (
+                        row * fx.Int32(self._inter_dim)
+                        if self._out_tensor is not None
+                        else row_g * fx.Int32(self._inter_dim)
+                    )
+                else:
+                    tok = _buffer_load(self._sorted_rsrc, slot, fx.Int32)
+                    valid = tok < fx.Int32(self._tokens)
+                    out_row_base = slot * fx.Int32(self._inter_dim)
+                if const_expr(self._tvr_rsrc is not None):
+                    # A padding row lies inside the whole-buffer num_records, so
+                    # without this its store lands for real. Marking it invalid sends
+                    # it to the out-of-range offset below, which num_records drops --
+                    # the same redirect the Stage2 scatter uses.
+                    valid = (row < tile_valid_rows) if const_expr(self._always_valid) else valid & (row < tile_valid_rows)
+                for nr in range_constexpr(n_reps):
+                    col0 = fx.Int32(nr * NLANE * EVEC) + nlane * fx.Int32(EVEC)
+                    idx = row * fx.Int32(cs_tile_n) + col0
+                    f32_iter = fx.recast_iter(fx.Float32, self._lds_out.at(idx, mr >= m_reps // 2))
+                    frag = fx.make_view(f32_iter, fx.make_layout(EVEC, 1)).load()
+                    v0 = frag[0]
+                    v1 = frag[1]
+                    a0 = v0.maximumf(fx.Float32(0.0) - v0)
+                    a1 = v1.maximumf(fx.Float32(0.0) - v1)
+                    m = a0.maximumf(a1)
+                    for off in (1, 2, 4, 8):
+                        m = m.maximumf(m.shuffle_xor(fx.Int32(off), c64))
+                    max_rounded = (m.bitcast(fx.Int32) + fx.Int32(0x400000)) & fx.Int32(0xFF800000)
+                    _e = (max_rounded >> fx.Int32(23)) - fx.Int32(8)
+                    e8m0_v = (_e > fx.Int32(0)).select(_e, fx.Int32(0))
+                    quant_scale = ((fx.Int32(254) - e8m0_v) << fx.Int32(23)).bitcast(fx.Float32)
+                    gcol = out_tile_base + col0
 
-                scaled0 = v0 * quant_scale
-                scaled1 = v1 * quant_scale
-                packed = rocdl.cvt_pk_fp8_f32(T.i32, scaled0, scaled1, fx.Int32(0), 0)
-                short_raw = fx.Int32(packed).to(fx.Int16)
-                out_byte = out_row_base + gcol
-                out_byte = valid.select(out_byte, fx.Int32(0x40000000))
-                _buffer_store(out_rsrc, out_byte // fx.Int32(2), short_raw, fx.Int16)
+                    scaled0 = v0 * quant_scale
+                    scaled1 = v1 * quant_scale
+                    packed = rocdl.cvt_pk_fp8_f32(T.i32, scaled0, scaled1, fx.Int32(0), 0)
+                    short_raw = fx.Int32(packed).to(fx.Int16)
+                    out_byte = out_row_base + gcol
+                    out_byte = valid.select(out_byte, fx.Int32(0x40000000))
+                    _buffer_store(out_rsrc, out_byte // fx.Int32(2), short_raw, fx.Int16)
 
-                col_s = gcol >> fx.Int32(5)
-                is_writer = (gcol & fx.Int32(31)) == fx.Int32(0)
-                d0 = row_g >> fx.Int32(5)
-                d1 = (row_g >> fx.Int32(4)) & fx.Int32(1)
-                d2 = row_g & fx.Int32(15)
-                d3 = col_s >> fx.Int32(3)
-                d4 = (col_s >> fx.Int32(2)) & fx.Int32(1)
-                d5 = col_s & fx.Int32(3)
-                byte_off = d0 * n32 + d3 * fx.Int32(256) + d5 * fx.Int32(64) + d2 * fx.Int32(4) + d4 * fx.Int32(2) + d1
-                scale_valid = (valid & is_writer) if const_expr(self._tvr_rsrc is not None) else is_writer
-                byte_off = scale_valid.select(byte_off, fx.Int32(0x40000000))
-                e8m0_i8 = e8m0_v.to(fx.Int8)
-                _buffer_store(self._out_scale_rsrc, byte_off, e8m0_i8, fx.Int8)
+                    col_s = gcol >> fx.Int32(5)
+                    is_writer = (gcol & fx.Int32(31)) == fx.Int32(0)
+                    d0 = row_g >> fx.Int32(5)
+                    d1 = (row_g >> fx.Int32(4)) & fx.Int32(1)
+                    d2 = row_g & fx.Int32(15)
+                    d3 = col_s >> fx.Int32(3)
+                    d4 = (col_s >> fx.Int32(2)) & fx.Int32(1)
+                    d5 = col_s & fx.Int32(3)
+                    byte_off = d0 * n32 + d3 * fx.Int32(256) + d5 * fx.Int32(64) + d2 * fx.Int32(4) + d4 * fx.Int32(2) + d1
+                    scale_valid = (valid & is_writer) if const_expr(self._tvr_rsrc is not None) else is_writer
+                    byte_off = scale_valid.select(byte_off, fx.Int32(0x40000000))
+                    e8m0_i8 = e8m0_v.to(fx.Int8)
+                    _buffer_store(self._out_scale_rsrc, byte_off, e8m0_i8, fx.Int8)
+
+        quant_rows(0, 3)
+
+        @flyc.jit
+        def quant_tail():
+            # Same predicate as the last16 producer; never read unwritten LDS.
+            # Both surrounding barriers remain unconditional.
+            if tile_valid_rows > fx.Int32(48):
+                quant_rows(3, 4)
+        quant_tail()
         wait_lds_barrier()

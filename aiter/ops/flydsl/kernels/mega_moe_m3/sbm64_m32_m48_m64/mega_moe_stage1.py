@@ -354,7 +354,7 @@ def compile_mega_moe_stage1(
         # padding-row writes also changes the code object.
         + "_asb1"
         + "_svb1"
-        + "_tf1_m324864_botharbd_n256"
+        + "_tf1_m324864_botharbd_epitail16_n256"
         + ("_s2qr1" if reset_stage2_queue else "")
         + ("_sharedl13" if shared_l13 else "")
         + ("_shxcd1" if shared_xcd else "")

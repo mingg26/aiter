@@ -1,7 +1,7 @@
 {
   "batch": 136,
   "production_base": "e5e830a664f44dde0da3f4ff2cf9027328e56aa0",
-  "source": ".scratch/b136_sbm64_m48_20260914_v1/candidate/fixed/mega_moe_m3",
+  "source": ".scratch/b136_sbm64_epi_tail16_20260914_v1/candidate/fixed/mega_moe_m3",
   "source_identity": {
     "gemm1.py": {
       "source_sha256": "3593c9f4c2c9038a8754780b9f911dc07080ba81d1c48334ef56d206aef031ea",
@@ -9,13 +9,13 @@
       "ast_equal_except_imports": true
     },
     "gemm_util.py": {
-      "source_sha256": "99d62d106e7bc8b6ac4e36313315cef42bde5c31027df401f4ae75bb824c3ed5",
-      "published_sha256": "99d62d106e7bc8b6ac4e36313315cef42bde5c31027df401f4ae75bb824c3ed5",
+      "source_sha256": "4a10da3c92a21f5a344499999ef805062b99eab457734b0c4cfdfa50dd3a2860",
+      "published_sha256": "4a10da3c92a21f5a344499999ef805062b99eab457734b0c4cfdfa50dd3a2860",
       "ast_equal_except_imports": true
     },
     "mega_moe_stage1.py": {
-      "source_sha256": "f3cfdaa5e5fa828315debc2a1813e3d6bac6c4784ccc41adc67e404cac26bac1",
-      "published_sha256": "a18cb1d964046adaae5b9a9e3fee6c8fea45ca7764031ccf9cbb1f3b2c919b75",
+      "source_sha256": "e9e9f9873e3898bb670a51dabf4fb6d839015a676dd78c82fe39d681e269395d",
+      "published_sha256": "6b8acf0a3410a7e38eb417eab34ea44f44ac35aa4d18460bd7a8b9748a8482dc",
       "ast_equal_except_imports": true
     }
   },
@@ -111,9 +111,8 @@
   "protocol": "12 balanced pairs per run;400 measured replays in chunks<=200;64settle;6+6null;16 probes;graph512;both capture directions;all8 GPU ISA matches offline;quick screening,not strict stability certification",
   "isa_note": "All branches cache current A before next DMA, use K-half B retirement and late A scales. M48 rotated CFG has12 MFMA and12 A reads, conditional tail DMA forwaves0-3. Existing M32/M64 instruction/constant/wait sequences match after erasing register identifiers; allocation changed,not byte-identical.",
   "M32_ni": "deferred;not implemented",
-  "published_rank6_isa_sha256": "87e674d44d898fdcc7bf007dda84446546bb647d9ece5518142e4b3d8ef77524",
   "published_rank6_isa_byte_identical": true,
-  "k3_final_review": "PASS; required migration ISA identity gate passed before commit",
+  "k3_final_review": "epi_tail16 final PASS; native fork rank6 ISA byte identity PASS",
   "quant_tail16": {
     "retained": false,
     "scope": "Last16 empty row quantization only",
@@ -208,5 +207,81 @@
     "prior": "Older upper32 guards slower0.087/0.291% atN512; neutral-0.002% on earlierN256 stack",
     "k3_final": "Audits pass; reject retention because reverse CI includes1, null drift exceeds nominal reverse gain",
     "comparison_policy": "Always compare with current validated fastest retained candidate; for this experiment adjacent_ba/ab against M48 are decisive. Original baseline runs historical only."
-  }
+  },
+  "pre_epi_tail16_source_identity": {
+    "gemm1.py": {
+      "source_sha256": "3593c9f4c2c9038a8754780b9f911dc07080ba81d1c48334ef56d206aef031ea",
+      "published_sha256": "cc09c12d47604bf92832cf544ae16390a1973cf90df323add2ec7cc927602911",
+      "ast_equal_except_imports": true
+    },
+    "gemm_util.py": {
+      "source_sha256": "99d62d106e7bc8b6ac4e36313315cef42bde5c31027df401f4ae75bb824c3ed5",
+      "published_sha256": "99d62d106e7bc8b6ac4e36313315cef42bde5c31027df401f4ae75bb824c3ed5",
+      "ast_equal_except_imports": true
+    },
+    "mega_moe_stage1.py": {
+      "source_sha256": "f3cfdaa5e5fa828315debc2a1813e3d6bac6c4784ccc41adc67e404cac26bac1",
+      "published_sha256": "a18cb1d964046adaae5b9a9e3fee6c8fea45ca7764031ccf9cbb1f3b2c919b75",
+      "ast_equal_except_imports": true
+    }
+  },
+  "epi_tail16": {
+    "retained": true,
+    "source": ".scratch/b136_sbm64_epi_tail16_20260914_v1/candidate/fixed/mega_moe_m3",
+    "scope": "Last16 common epilogue producer and consumer guards",
+    "comparisons": {
+      "epi_ba": {
+        "full_forward": {
+          "A_us": 275.2550752957662,
+          "B_us": 273.8979458808899,
+          "ratio": 0.9950717616570479,
+          "ci95": [
+            0.9936235260831264,
+            0.9965733531793094
+          ],
+          "faster_pairs": 11
+        },
+        "null": {
+          "ratio": 0.9998589974053045,
+          "ci95": [
+            0.9984505523366483,
+            1.0011028858435762
+          ]
+        }
+      },
+      "epi_ab": {
+        "full_forward": {
+          "A_us": 275.9731062253316,
+          "B_us": 274.80384588241577,
+          "ratio": 0.9957646640806124,
+          "ci95": [
+            0.9939911791470437,
+            0.9973041588122159
+          ],
+          "faster_pairs": 12
+        },
+        "null": {
+          "ratio": 0.9997188873209817,
+          "ci95": [
+            0.9979976776035703,
+            1.0014152347323393
+          ]
+        }
+      }
+    },
+    "resources": {
+      "vgpr": 202,
+      "sgpr": 106,
+      "spill": 0,
+      "scratch": 0,
+      "lds": 45056
+    },
+    "validation": "Both16-probe/graph512/full-forward/paired-profile/actual8rankISA/source reviews pass",
+    "isa": "All8 main-loop opcode/constant/wait sequences equal after register IDs erased; physical allocation changed",
+    "limits": "Both capture directions full-forward ratio CI upper<1, disclose null; quick screening not strict stability",
+    "k3_review": "/mnt/shared/homes/ming/msa/.scratch/b136_sbm64_epi_tail16_20260914_v1/review/k3_final.log",
+    "native_rank6_isa_byte_identical": true,
+    "native_rank6_isa_sha256": "d37e47ed0b3728230ca8ca3578bf3caaa5757dad321295e83129a6324dc36e3a"
+  },
+  "published_rank6_isa_sha256": "d37e47ed0b3728230ca8ca3578bf3caaa5757dad321295e83129a6324dc36e3a"
 }

@@ -9,7 +9,9 @@ Valid rows <=32 use M32, 33-48 use M48, and 49-64 use M64. All three paths
 cache current A before next-A DMA, retire B by K128 half, and load A scales
 late. M48 uses ceiling division for its two logical scale groups, copies
 48 rows with the SBM128 wave-uniform tail, and pads two accumulator vectors
-with zero for the original M64 epilogue. No ni retirement is added.
+with zero for the common M64 epilogue. Empty rows48-63 now skip both
+SwiGLU/LDS production and quantization under matching guards; barriers
+remain unconditional. No ni retirement is added.
 
 Scope: b136, EP8, H6144/I3072, top4, 128 experts, shared L13/L2,
 physical SBM64, N256, K256, eight waves and the frozen b136 scheduling setup.
@@ -25,7 +27,9 @@ independent math, source identity, and all-eight GPU/offline ISA equality.
 K3 reviewed the design, implementation and all four results. After import
 path migration, rank6 ISA is byte-identical to the GPU-tested source.
 
-Main comparisons use the original fastest ticket-fixed single M64/N512.
+The following historical M48-addition comparisons used the original
+fastest ticket-fixed single M64/N512; the latest epilogue comparisons below
+use the retained M48 candidate directly.
 Adjacent comparisons use the preceding M32/M64 botharbd candidate.
 Each comparison uses 12 balanced pairs; reverse suffixes denote actual graph
 construction order. Values are full-forward microseconds.
@@ -58,3 +62,21 @@ are retained only as cumulative historical reference.
 
 Full ratios and confidence intervals are in `validation.json`. Quick screen only;
 no null subtraction or production default promotion.
+
+## Last16 producer and consumer epilogue guards
+
+Retained: skip empty rows48-63 before SwiGLU and LDS writes, and skip
+the same rows during quantization. The optional high group is produced first.
+Both comparisons below directly use the previous fastest M48 candidate.
+No kernel defaults are promoted. All8 ranks remain at202VGPR/106SGPR,
+zero V/S spill,zero scratch,LDS45056; physical register assignment changes
+while steady-loop opcode/constants/waits match after register IDs are erased.
+
+| Run | A us | B us | B/A | Null B/A |
+|---|---:|---:|---:|---:|
+| epi_ba | 275.255 | 273.898 | 0.995071762 | 0.999858997 |
+| epi_ab | 275.973 | 274.804 | 0.995764664 | 0.999718887 |
+
+Both16-probe/graph512/all8 GPU-ISA/source checks pass. These are quick
+screening results; confidence intervals and self-null diagnostics are in
+`validation.json`. No null subtraction or causal branch-cost claim.
