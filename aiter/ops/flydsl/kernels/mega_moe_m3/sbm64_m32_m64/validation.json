@@ -1,0 +1,81 @@
+{
+  "batch": 136,
+  "phase": "m64",
+  "baseline": "ticket-corrected single M64/N512",
+  "production_base": "e5e830a664f44dde0da3f4ff2cf9027328e56aa0",
+  "source": ".scratch/b136_sbm64_m64_schedule_20260914_v1/n256_a_first/fixed/mega_moe_m3",
+  "source_identity": {
+    "gemm1.py": {
+      "source_sha256": "80d533679e247514f55aa5152800c65e8fb8e067c1a6e0f1ecc43142f8dc87da",
+      "published_sha256": "8ef1c4785c725b7ccd8e76772493604ac0fc334e31698a5a48c04353da084bce",
+      "ast_equal_except_imports": true
+    },
+    "gemm_util.py": {
+      "source_sha256": "945881737ec04da46e92e6815a62a980be4969bc361955ead9fdf8e6dd0e955e",
+      "published_sha256": "945881737ec04da46e92e6815a62a980be4969bc361955ead9fdf8e6dd0e955e",
+      "ast_equal_except_imports": true
+    },
+    "mega_moe_stage1.py": {
+      "source_sha256": "cc4baf505b944d3a4d91555474ff9f42f2e893d872edf4082a8bd92e3a8ea9d8",
+      "published_sha256": "e7d3c31fc77e1279c959248ba6e48e3717ac76c13282d3331d1026c8079143b7",
+      "ast_equal_except_imports": true
+    }
+  },
+  "default_enabled": false,
+  "resources": {
+    "vgpr": 202,
+    "sgpr": 106,
+    "vgpr_spill": 0,
+    "sgpr_spill": 0,
+    "scratch_bytes": 0,
+    "lds_bytes": 45056
+  },
+  "a_first_vs_original": {
+    "a_first_ba": {
+      "A_us": 285.57624737421673,
+      "B_us": 280.9455108642578,
+      "ratio": 0.9837839310951154,
+      "ci95": [
+        0.9827362903168176,
+        0.985088764096067
+      ],
+      "faster_pairs": 12
+    },
+    "a_first_ab": {
+      "A_us": 286.6262706120809,
+      "B_us": 281.32317304611206,
+      "ratio": 0.9814980813447037,
+      "ci95": [
+        0.9805431990687874,
+        0.9824362713389816
+      ],
+      "faster_pairs": 12
+    }
+  },
+  "rejected_m64_ni": {
+    "adjacent_ba": {
+      "A_us": 281.8720046679179,
+      "B_us": 282.66149520874023,
+      "ratio": 1.0028002225299184,
+      "ci95": [
+        1.0013005621400461,
+        1.0042844539192635
+      ],
+      "faster_pairs": 2
+    },
+    "adjacent_ab": {
+      "A_us": 280.88659207026166,
+      "B_us": 281.6631277402242,
+      "ratio": 1.00276789111923,
+      "ci95": [
+        1.0005406187653376,
+        1.0049953799916533
+      ],
+      "faster_pairs": 2
+    }
+  },
+  "protocol": "12 balanced pairs per run; 400 measured replays per sample in chunks <=200; 64settle; 6+6 null controls; 16 probes; graph512; both actual capture directions; all8 GPU ISA matches offline; quick screening, not strict stability certification",
+  "m32_current_a_gpu_status": "not included",
+  "published_rank6_isa_sha256": "da2bedb2ff301c661679da1bd5c184ed8890bdc5ccd7f9f5ccb4cf39299a345a",
+  "published_rank6_matches_frozen_isa": true
+}
