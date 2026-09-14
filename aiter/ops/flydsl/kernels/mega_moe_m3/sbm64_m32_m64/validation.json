@@ -75,7 +75,7 @@
     }
   },
   "protocol": "12 balanced pairs per run; 400 measured replays per sample in chunks <=200; 64settle; 6+6 null controls; 16 probes; graph512; both actual capture directions; all8 GPU ISA matches offline; quick screening, not strict stability certification",
-  "m32_current_a_gpu_status": "Both original-baseline comparisons passed; incremental comparison versus a_first is still running.",
+  "m32_current_a_gpu_status": "All four runs passed: two original-baseline comparisons and two incremental comparisons.",
   "m32_current_a_vs_original": {
     "m32_ba": {
       "A_us": 287.0669364929199,
@@ -98,7 +98,60 @@
       "faster_pairs": 12
     }
   },
-  "incremental_vs_a_first": "pending",
+  "incremental_vs_a_first": {
+    "adjacent_ba": {
+      "A_us": 281.34361267089844,
+      "B_us": 280.46772082646686,
+      "ratio": 0.9968868917812315,
+      "ci95": [
+        0.9957873060373419,
+        0.9978311886706754
+      ],
+      "faster_pairs": 12
+    },
+    "adjacent_ab": {
+      "A_us": 280.95075766245526,
+      "B_us": 280.48843542734784,
+      "ratio": 0.998353708068494,
+      "ci95": [
+        0.9973521487356886,
+        0.9993254067017628
+      ],
+      "faster_pairs": 8
+    }
+  },
   "published_rank6_isa_sha256": "65766da198155d0bfa4a1eb13971bedd4d51f4e8a4faffc628c07bd9c5cddc98",
-  "published_rank6_matches_frozen_isa": true
+  "published_rank6_matches_frozen_isa": true,
+  "null_controls": {
+    "m32_ba": {
+      "ratio": 0.9987873973013608,
+      "ci95": [
+        0.9973438571149992,
+        1.0000552109244893
+      ]
+    },
+    "m32_ab": {
+      "ratio": 0.9975820657736673,
+      "ci95": [
+        0.9949122422521147,
+        1.000318928182286
+      ]
+    },
+    "adjacent_ba": {
+      "ratio": 0.9992836276273791,
+      "ci95": [
+        0.9981527619390064,
+        1.0002978928800046
+      ]
+    },
+    "adjacent_ab": {
+      "ratio": 0.9985719955030335,
+      "ci95": [
+        0.9970978325270045,
+        0.999964783834401
+      ]
+    }
+  },
+  "interpretation": "Quick paired screening only. Incremental effect is small and comparable to the reverse-run null bias; no null subtraction or strict stability/promotion claim.",
+  "gpu_source_isa_identity": "All8 ranks in all4 runs byte-identical to frozen offline ISA; both actual graph construction directions and reused original graph identities verified."
 }
