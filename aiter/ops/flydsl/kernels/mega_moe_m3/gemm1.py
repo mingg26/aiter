@@ -219,6 +219,8 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
                 if mfma_amajor
                 else mfma.call_pipe
             )
+            if const_expr(M_REPEAT == 2 and NUM_ACC_N == 4 and mfma_amajor and async_a_copy):
+                call_pipe = mfma.call_pipe_retire_b
             acc, b_next = call_pipe(
                 a_load,
                 b_prev,

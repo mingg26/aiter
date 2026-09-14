@@ -580,6 +580,26 @@ class MfmaScaleGU:
                     )
         return acc, b_next
 
+    def call_pipe_retire_b(self, a_load, b_prev, acc, sa, sb, load_next):
+        """Finish each old N group before loading its next K-step operands."""
+        assert self._m_repeat == 2 and self._num_acc_n == 4
+        a_ops = [[a_load(mi, ks) for ks in range_constexpr(_PACK)]
+                 for mi in range_constexpr(self._m_repeat)]
+        b_next = []
+        for ni in range_constexpr(self._num_acc_n):
+            for ks in range_constexpr(_PACK):
+                for mi in range_constexpr(self._m_repeat):
+                    aidx = self.idx(mi, ni)
+                    acc[aidx] = self._mfma(
+                        a_ops[mi][ks], b_prev[ni][ks], acc[aidx],
+                        sa[mi // _PACK], sb[ni // _PACK],
+                        ks, mi % _PACK, ni % _PACK)
+            # Retire old B before reusing registers for its successor.
+            rocdl.sched_barrier(0)
+            b_next.append(load_next(ni))
+            rocdl.sched_barrier(0)
+        return acc, b_next
+
     def call_pipe_am(self, a_load, b_prev, acc, sa, sb, load_next):
         """A-major pipe: lazy-A per (mi,ksub) overlaps next A ds_read with MFMA; next-B loads spread over groups."""
         nn = self._num_acc_n

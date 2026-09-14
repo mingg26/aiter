@@ -352,7 +352,7 @@ def compile_mega_moe_stage1(
         + "_asb1"
         + "_svb1"
         + "_scratchfix1"
-        + "_tb1_salate1"
+        + "_tb1_salate1_brni1"
         + ("_s2qr1" if reset_stage2_queue else "")
         + ("_sharedl13" if shared_l13 else "")
         + ("_shxcd1" if shared_xcd else "")
