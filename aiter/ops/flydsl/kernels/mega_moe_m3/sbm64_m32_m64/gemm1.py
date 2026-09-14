@@ -192,7 +192,7 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
                 )
 
             cached_a = None
-            if const_expr(M_REPEAT == 4):
+            if const_expr(M_REPEAT in (2, 4)):
                 # Previous K-end barrier made current ping/pong slot ready.
                 # Keep its reads before DMA into the other slot.
                 cached_a = [[a_s2r.load_operand(a_buf, mi, ks, cur_off)
@@ -201,7 +201,7 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
                 rocdl.sched_barrier(0)
 
             def a_load(mi, ks, _base=cur_off):
-                if const_expr(M_REPEAT == 4):
+                if const_expr(M_REPEAT in (2, 4)):
                     return cached_a[mi][ks]
                 return a_s2r.load_operand(a_buf, mi, ks, _base)
 

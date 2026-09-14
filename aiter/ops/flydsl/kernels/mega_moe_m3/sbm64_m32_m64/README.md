@@ -31,7 +31,15 @@ comparisons (12/12 faster pairs each). These are quick-screen results, not
 strict stability certification. That earlier whole-kernel change also altered
 M32 wait placement, so it is not a pure M64 runtime attribution.
 
-Current checkpoint: M64 A-first only; M32 A reads remain lazy.
+Current checkpoint also moves M32 current-A reads before DMA. Its source
+changes are only two constexpr gates and a new kernel tag. All eight offline
+ISAs pass at 202 VGPR / 106 SGPR, zero spill/scratch; M32 has eight A reads
+before DMA and the intervening vmcnt(0) is removed. All eight M64 steady loops
+match the previous checkpoint. Two complete-forward comparisons against the original M64 baseline passed:
+287.067 -> 280.563 us (2.266% faster) and 287.025 -> 280.136 us
+(2.400% faster), each 12/12 faster pairs. The direct incremental comparison
+against the previous A-first candidate is still running; do not infer that
+incremental effect by subtracting results from separate runs.
 
 `validation.json` records source identity, per-run ratios and confidence
 intervals. Generated ISA, traces, virtual environments, and build caches are

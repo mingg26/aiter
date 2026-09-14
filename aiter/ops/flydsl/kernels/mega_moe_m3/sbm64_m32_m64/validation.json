@@ -1,13 +1,13 @@
 {
   "batch": 136,
-  "phase": "m64",
+  "phase": "m32",
   "baseline": "ticket-corrected single M64/N512",
   "production_base": "e5e830a664f44dde0da3f4ff2cf9027328e56aa0",
-  "source": ".scratch/b136_sbm64_m64_schedule_20260914_v1/n256_a_first/fixed/mega_moe_m3",
+  "source": ".scratch/b136_sbm64_m32_aread_20260914_v1/candidate/fixed/mega_moe_m3",
   "source_identity": {
     "gemm1.py": {
-      "source_sha256": "80d533679e247514f55aa5152800c65e8fb8e067c1a6e0f1ecc43142f8dc87da",
-      "published_sha256": "8ef1c4785c725b7ccd8e76772493604ac0fc334e31698a5a48c04353da084bce",
+      "source_sha256": "d8d662259a93d851b0a4b40a68b520ce5abbb5ab33409d1bdda15b1e135f230b",
+      "published_sha256": "ae91fc0b61379969f5ccb7bfcdeeaf7d4d5db8f9df6bcb80ac4829874678f950",
       "ast_equal_except_imports": true
     },
     "gemm_util.py": {
@@ -16,8 +16,8 @@
       "ast_equal_except_imports": true
     },
     "mega_moe_stage1.py": {
-      "source_sha256": "cc4baf505b944d3a4d91555474ff9f42f2e893d872edf4082a8bd92e3a8ea9d8",
-      "published_sha256": "e7d3c31fc77e1279c959248ba6e48e3717ac76c13282d3331d1026c8079143b7",
+      "source_sha256": "19c3232646d5377136cd544f06c16799eb027fbbf6f91a8caf958d9f73a03e3c",
+      "published_sha256": "814d31c61116840c4a2c71ba34459b95e9189c6956fe8ab31142c68147b6b96c",
       "ast_equal_except_imports": true
     }
   },
@@ -75,7 +75,30 @@
     }
   },
   "protocol": "12 balanced pairs per run; 400 measured replays per sample in chunks <=200; 64settle; 6+6 null controls; 16 probes; graph512; both actual capture directions; all8 GPU ISA matches offline; quick screening, not strict stability certification",
-  "m32_current_a_gpu_status": "not included",
-  "published_rank6_isa_sha256": "da2bedb2ff301c661679da1bd5c184ed8890bdc5ccd7f9f5ccb4cf39299a345a",
+  "m32_current_a_gpu_status": "Both original-baseline comparisons passed; incremental comparison versus a_first is still running.",
+  "m32_current_a_vs_original": {
+    "m32_ba": {
+      "A_us": 287.0669364929199,
+      "B_us": 280.56331396102905,
+      "ratio": 0.9773438715797477,
+      "ci95": [
+        0.9757302127524762,
+        0.9787645710860056
+      ],
+      "faster_pairs": 12
+    },
+    "m32_ab": {
+      "A_us": 287.0253761609395,
+      "B_us": 280.13628880182904,
+      "ratio": 0.9759984965870234,
+      "ci95": [
+        0.9739576112316817,
+        0.9781589444749014
+      ],
+      "faster_pairs": 12
+    }
+  },
+  "incremental_vs_a_first": "pending",
+  "published_rank6_isa_sha256": "65766da198155d0bfa4a1eb13971bedd4d51f4e8a4faffc628c07bd9c5cddc98",
   "published_rank6_matches_frozen_isa": true
 }
