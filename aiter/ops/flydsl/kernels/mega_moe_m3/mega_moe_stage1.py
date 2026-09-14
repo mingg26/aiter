@@ -316,6 +316,12 @@ def compile_mega_moe_stage1(
         f"_a{str(float(swiglu_alpha)).replace('.', 'p')}"
         f"b{str(float(swiglu_beta)).replace('.', 'p')}"
     )
+    read_a_before_dma = (model_dim == 6144 and inter_dim == 3072
+        and fz_npes == 8 and fz_epr == 16 and fz_k == 4 and fz_mtpr == 96
+        and sort_block_m == 32 and tile_n == 512 and NUM_WAVES == 8
+        and preplanned and shared_l13 and pipe_weights and mfma_amajor and async_a_copy
+        and not use_tile_resource and not unroll_a_pingpong and not split_a_lds
+        and not prefetch_a_operand and not packed_a_scale)
     kernel_name = (
         f"megamoe_stage1_{dispatch_path}_t{sort_block_m}x{tile_n}x{tile_k}"
         f"_w{NUM_WAVES}_gm{grid_mult}"
@@ -353,6 +359,7 @@ def compile_mega_moe_stage1(
         + "_svb1"
         + "_scratchfix1"
         + "_tb1_salate1_brni1"
+        + ("_arbd1" if read_a_before_dma else "")
         + ("_s2qr1" if reset_stage2_queue else "")
         + ("_sharedl13" if shared_l13 else "")
         + ("_shxcd1" if shared_xcd else "")
@@ -616,6 +623,7 @@ def compile_mega_moe_stage1(
                 async_a_copy=async_a_copy, use_tile_resource=use_tile_resource,
                 band_m=1 if small_xcd else BAND_M,
                 packed_a_scale=packed_a_scale,
+                read_a_before_dma=read_a_before_dma,
                 unroll_a_pingpong=unroll_a_pingpong,
                 split_a_lds=split_a_lds,
                 fp8_b_waitcnt=fp8_b_waitcnt,

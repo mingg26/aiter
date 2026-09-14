@@ -53,7 +53,7 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
     a_scale_lds, a_lds_i32, K_ITERS, M_REPEAT, NUM_ACC_N, A_K_STEP_BYTES, pipe_weights,
     mfma_amajor, async_a_copy, trb_rsrc, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, scalar_tile_row_base=False,
     tvr_rsrc=None, tvr_row_bytes=0,
-    wait_payload=None, work=None):
+    wait_payload=None, work=None, read_a_before_dma=False):
 # fmt: on
     N_ACC = M_REPEAT * NUM_ACC_N
     NUM_B_SCALE = NUM_ACC_N // _PACK
@@ -191,7 +191,18 @@ def do_tile(m_tile, n_tile_base, expert, sched, a_gather, a_s2r, b_loader, b_sca
                     sp,
                 )
 
+            cached_a = None
+            if const_expr(read_a_before_dma):
+                # The preceding K-end barrier made the current slot ready.
+                # Issue its reads before writing the opposite slot with DMA.
+                cached_a = [[a_s2r.load_operand(a_buf, mi, ks, cur_off)
+                             for ks in range_constexpr(_PACK)]
+                            for mi in range_constexpr(M_REPEAT)]
+                rocdl.sched_barrier(0)
+
             def a_load(mi, ks, _base=cur_off):
+                if const_expr(read_a_before_dma):
+                    return cached_a[mi][ks]
                 return a_s2r.load_operand(a_buf, mi, ks, _base)
 
             if const_expr(async_a_copy):
@@ -391,7 +402,7 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
     model_dim, inter_dim, sort_block_m, tile_n, num_waves, n_per_wave, wave_id,
     m_repeat, num_acc_n, a_k_step_bytes, total_threads, k_iters, a_lds_i32, n_tiles,
     expert_offset, b_cache_modifier, swizzle_a, pipe_weights, mfma_amajor, async_a_copy,
-    use_tile_resource, band_m=1, swiglu_limit=0.0, swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, bf16_intermediate=None, a_tile_bytes=None):
+    use_tile_resource, band_m=1, swiglu_limit=0.0, swiglu_alpha=1.702, swiglu_beta=1.0, packed_a_scale=False, unroll_a_pingpong=False, split_a_lds=False, fp8_b_waitcnt=False, prefetch_a_operand=False, scalar_tile_row_base=False, bf16_intermediate=None, a_tile_bytes=None, read_a_before_dma=False):
     # fmt: on
     """Build the GEMM1 atoms and return its expert resolver and tile runner."""
     sched = TileScheduler(
@@ -488,7 +499,7 @@ def build_fused_gemm1(*, x_tensor, w_rsrc, sw_rsrc, sx_rsrc,
             a_k_step_bytes, pipe_weights, mfma_amajor, async_a_copy,
             trb_rsrc, unroll_a_pingpong, split_a_lds, fp8_b_waitcnt, scalar_tile_row_base,
             tvr_rsrc=tvr_rsrc, tvr_row_bytes=model_dim,
-            wait_payload=wait_payload, work=flat)
+            wait_payload=wait_payload, work=flat, read_a_before_dma=read_a_before_dma)
         # fmt: on
 
     return expert_of_flat, m_tile_of_flat, do_scheduled_tile
