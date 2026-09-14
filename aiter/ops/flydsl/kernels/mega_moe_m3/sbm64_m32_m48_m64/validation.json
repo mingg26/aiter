@@ -113,5 +113,100 @@
   "M32_ni": "deferred;not implemented",
   "published_rank6_isa_sha256": "87e674d44d898fdcc7bf007dda84446546bb647d9ece5518142e4b3d8ef77524",
   "published_rank6_isa_byte_identical": true,
-  "k3_final_review": "PASS; required migration ISA identity gate passed before commit"
+  "k3_final_review": "PASS; required migration ISA identity gate passed before commit",
+  "quant_tail16": {
+    "retained": false,
+    "scope": "Last16 empty row quantization only",
+    "source": ".scratch/b136_sbm64_quant_tail16_20260914_v1/candidate/fixed/mega_moe_m3",
+    "resources": {
+      "vgpr": 202,
+      "sgpr": 106,
+      "spill": 0,
+      "scratch_bytes": 0,
+      "lds_bytes": 45056
+    },
+    "comparisons": {
+      "qtail_ba": {
+        "full_forward": {
+          "A_us": 286.6416001319885,
+          "B_us": 275.43493270874023,
+          "ratio": 0.9609030169237288,
+          "ci95": [
+            0.9597961516774114,
+            0.9620708003597042
+          ],
+          "faster_pairs": 12
+        },
+        "null": {
+          "ratio": 0.9973541957946351,
+          "ci95": [
+            0.9954140164788023,
+            0.9990783998367603
+          ]
+        }
+      },
+      "qtail_ab": {
+        "full_forward": {
+          "A_us": 286.2518000602722,
+          "B_us": 275.11559168497723,
+          "ratio": 0.9610980004419342,
+          "ci95": [
+            0.9598670958329527,
+            0.9622440507510874
+          ],
+          "faster_pairs": 12
+        },
+        "null": {
+          "ratio": 0.9984715858879467,
+          "ci95": [
+            0.9973197687756284,
+            0.9996091875279826
+          ]
+        }
+      },
+      "adjacent_ba": {
+        "full_forward": {
+          "A_us": 276.0307256380717,
+          "B_us": 275.58502435684204,
+          "ratio": 0.9983857678276745,
+          "ci95": [
+            0.9973347771207063,
+            0.9995787745092836
+          ],
+          "faster_pairs": 11
+        },
+        "null": {
+          "ratio": 1.00030131080219,
+          "ci95": [
+            0.999644927201676,
+            1.0009479174718212
+          ]
+        }
+      },
+      "adjacent_ab": {
+        "full_forward": {
+          "A_us": 275.7660245895386,
+          "B_us": 275.4386822382609,
+          "ratio": 0.998812411460185,
+          "ci95": [
+            0.9975349820073707,
+            1.0004345156637038
+          ],
+          "faster_pairs": 10
+        },
+        "null": {
+          "ratio": 0.9978644735056742,
+          "ci95": [
+            0.9964936899965782,
+            0.9990628374865765
+          ]
+        }
+      }
+    },
+    "validation": "All four16-probe/graph512/full-forward/paired-profile/actual8rankISA/source reviews pass; all8 threeKloop texts match previousM48",
+    "limits": "Quick screening; not strict stability or production promotion; no null subtraction",
+    "prior": "Older upper32 guards slower0.087/0.291% atN512; neutral-0.002% on earlierN256 stack",
+    "k3_final": "Audits pass; reject retention because reverse CI includes1, null drift exceeds nominal reverse gain",
+    "comparison_policy": "Always compare with current validated fastest retained candidate; for this experiment adjacent_ba/ab against M48 are decisive. Original baseline runs historical only."
+  }
 }

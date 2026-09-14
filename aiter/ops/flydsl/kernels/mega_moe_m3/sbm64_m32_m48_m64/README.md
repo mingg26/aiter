@@ -40,3 +40,21 @@ construction order. Values are full-forward microseconds.
 These are quick-screen results, not strict stability certification or a
 production promotion. Null ratios and confidence intervals are preserved in
 `validation.json`; no null subtraction or separate-run mean subtraction is used.
+
+## Last16 quantization experiment
+
+Rejected: skipping quantization of empty rows 48–63 did not pass the two-direction incremental retention rule.
+The producer, barriers and all three steady K-loop instruction texts were preserved.
+All four correctness and GPU/offline ISA checks passed at 202 VGPR / 106 SGPR, zero spill.
+Primary comparison is previous M48 (adjacent_ba/ab). Original M64/N512 runs
+are retained only as cumulative historical reference.
+
+| Run | A us | B us | B/A | Null B/A |
+| --- | ---: | ---: | ---: | ---: |
+| qtail_ba | 286.642 | 275.435 | 0.960903017 | 0.997354196 |
+| qtail_ab | 286.252 | 275.116 | 0.961098000 | 0.998471586 |
+| adjacent_ba | 276.031 | 275.585 | 0.998385768 | 1.000301311 |
+| adjacent_ab | 275.766 | 275.439 | 0.998812411 | 0.997864474 |
+
+Full ratios and confidence intervals are in `validation.json`. Quick screen only;
+no null subtraction or production default promotion.
