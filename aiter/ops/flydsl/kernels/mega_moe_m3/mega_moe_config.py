@@ -159,6 +159,10 @@ for _t in SHARED_FUSED_MTPR_SMALL:
         SHARED_L2_S2_SHAPES[_t] = ((128, 256, 32, _sbm), (256, 256, 32, _sbm))
 del _t, _sbm
 
+# Corrected historical SBM64 baselines; the ticket fix is unconditional.
+SBM64_PATHS = {120: "full", 136: "full", 160: "m16_dma", 168: "m16_dma",
+               176: "m16_dma", 184: "m16_dma", 192: "m16"}
+
 # Validated rollout sizes only. The generic shared-row table stays unchanged;
 # MegaMoEM3 opts into SBM128 only for the measured EP8 fused-shared workload.
 SBM128_PATHS = {
@@ -233,8 +237,15 @@ class Stage1Config:
     shared_packed_heads: bool = False
     # Isolated measured SBM128 implementation; never inferred from the bucket.
     sbm128_path: str = "generic"
+    sbm64_path: str = "generic"
 
     def __post_init__(self):
+        if self.sbm64_path not in ("generic", "full", "m16_dma", "m16"):
+            raise ValueError(f"Unknown SBM64 path {self.sbm64_path!r}")
+        if self.sbm64_path != "generic" and (
+            (self.sort_block_m, self.tile_n) != (64, 512) or self.sbm128_path != "generic"
+        ):
+            raise ValueError("Specialized SBM64 paths require SBM64/N512 and generic SBM128")
         if self.sbm128_path not in ("generic", "m16", "tiered96"):
             raise ValueError(f"Unknown SBM128 path {self.sbm128_path!r}")
         if self.sbm128_path != "generic" and (self.sort_block_m, self.tile_n) != (128, 256):

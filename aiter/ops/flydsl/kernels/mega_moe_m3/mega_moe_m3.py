@@ -21,6 +21,7 @@ from .mega_moe_config import (
     SHARED_FUSED_MTPR_LARGE,
     SHARED_FUSED_MTPR_SMALL,
     SBM128_PATHS,
+    SBM64_PATHS,
     _STAGE1_OVERRIDE_ENV,
     MegaMoEConfig,
     Stage1Config,
@@ -108,6 +109,14 @@ class MegaMoEM3:
             and (self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk)
                 == (8, 16, 6144, 3072, 4)
             and self.mtpr in SBM128_PATHS
+            and not self.local_reduce and not self.local_reduce_xcd_local
+            and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())
+        )
+        self._sbm64_scope = (
+            shared_w13 is not None and shared_w2 is not None and bool(shared_xcd_schedule)
+            and (self.world_size, self.epr, self.model_dim, self.inter_dim, self.topk)
+                == (8, 16, 6144, 3072, 4)
+            and self.mtpr in SBM64_PATHS
             and not self.local_reduce and not self.local_reduce_xcd_local
             and not any(os.environ.get(name) for name in _STAGE1_OVERRIDE_ENV.values())
         )
@@ -375,6 +384,7 @@ class MegaMoEM3:
             # 256-token entry keeps preplan_waves=0 only on the unfused path.
             fused_shared = self._shared_l13 is not None
             sbm128_path = SBM128_PATHS[tokens] if self._sbm128_scope and tokens == self.mtpr else "generic"
+            sbm64_path = SBM64_PATHS[tokens] if self._sbm64_scope and tokens == self.mtpr else "generic"
             sort_block_m = 128 if sbm128_path != "generic" else SHARED_SMALL_SORT_BLOCK_M[tokens]
             s2_block_m = 64 if tokens == 64 else 32
             #   stage2.block_n: 256 halves how often Stage2 re-reads its A2 panel
@@ -397,7 +407,7 @@ class MegaMoEM3:
             config = MegaMoEConfig(
                 stage1=Stage1Config(
                     sort_block_m=sort_block_m, tile_n=256 if sbm128_path != "generic" else 512,
-                    tile_k=256, num_waves=8, sbm128_path=sbm128_path,
+                    tile_k=256, num_waves=8, sbm128_path=sbm128_path, sbm64_path=sbm64_path,
                     grid_mult=1, num_dispatch_cu=32 if tokens == 256 else 48,
                     mfma_amajor=True,
                     async_a_copy=True, use_tile_resource=False,
@@ -571,6 +581,19 @@ class MegaMoEM3:
             else:
                 raise ValueError(f"Uninstalled SBM128 path {config.sbm128_path!r}")
             specialized_kwargs["skip_empty_m16"] = True
+        if config.sbm64_path != "generic":
+            if not self._sbm64_scope or cur_tok != self.mtpr:
+                raise ValueError("Specialized SBM64 requires the validated full EP8 shared batch")
+            if config.sbm64_path == "full":
+                from .sbm64_full.mega_moe_stage1 import run_mega_moe_stage1 as stage1_runner
+            elif config.sbm64_path == "m16_dma":
+                from .sbm64_m16_dma.mega_moe_stage1 import run_mega_moe_stage1 as stage1_runner
+            elif config.sbm64_path == "m16":
+                from .sbm64_m16.mega_moe_stage1 import run_mega_moe_stage1 as stage1_runner
+            else:
+                raise ValueError(f"Uninstalled SBM64 path {config.sbm64_path!r}")
+            if config.sbm64_path != "full":
+                specialized_kwargs["skip_empty_m16"] = True
         # fmt: off
         stage1_runner(
             self._s1_out, self._s1_rx, self._s1_w1, self._s1_scale_i32, self._s1_w1_scale,
@@ -818,6 +841,7 @@ class MegaMoEM3:
             band_m=stage2.band_m, schedule_audit=stage2.schedule_audit, queue_grid_mult=stage2.queue_grid_mult,
             shared_schedule=stage2.shared_schedule,
             sbm128_rollout=self._sbm128_scope and config.stage1.sbm128_path != "generic",
+            sbm64_rollout=self._sbm64_scope and config.stage1.sbm64_path != "generic",
             work_head=self._g2_work_head.data_ptr(), local_reduce=self.local_reduce,
             local_reduce_xcd_local=self.local_reduce_xcd_local,
             staging_ptr=self._g2_staging.data_ptr() if self.local_reduce else 0,

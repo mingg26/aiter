@@ -1,4 +1,4 @@
-"""CPU-only regression tests for the measured EP8 SBM128 default boundary."""
+"""CPU-only regression tests for the measured EP8 SBM64/SBM128 default boundaries."""
 import ast
 from dataclasses import replace
 import importlib.util
@@ -24,6 +24,9 @@ exec(compile(ast.Module(body=[selector], type_ignores=[]), '<actual selector>', 
 scope_expr = next(n.value for n in ast.walk(cls) if isinstance(n, ast.Assign)
     and any(isinstance(t, ast.Attribute) and t.attr == '_sbm128_scope' for t in n.targets))
 scope_code = compile(ast.Expression(scope_expr), '<actual scope guard>', 'eval')
+scope64_expr = next(n.value for n in ast.walk(cls) if isinstance(n, ast.Assign)
+    and any(isinstance(t, ast.Attribute) and t.attr == '_sbm64_scope' for t in n.targets))
+scope64_code = compile(ast.Expression(scope64_expr), '<actual SBM64 scope guard>', 'eval')
 
 
 def operator(tokens, *, shared=True, shared_l2=True, xcd=True, world=8, epr=16, hidden=6144, inter=3072, topk=4, lr=False):
@@ -31,6 +34,8 @@ def operator(tokens, *, shared=True, shared_l2=True, xcd=True, world=8, epr=16, 
         inter_dim=inter, topk=topk, local_reduce=lr, local_reduce_xcd_local=False,
         _s1_fixed_slot=False, _shared_l13=1 if shared else None)
     op._sbm128_scope = eval(scope_code, vars(cfg), dict(self=op,
+        shared_w13=1 if shared else None, shared_w2=1 if shared_l2 else None, shared_xcd_schedule=xcd))
+    op._sbm64_scope = eval(scope64_code, vars(cfg), dict(self=op,
         shared_w13=1 if shared else None, shared_w2=1 if shared_l2 else None, shared_xcd_schedule=xcd))
     return op
 
@@ -84,6 +89,36 @@ class SBM128DefaultsTest(unittest.TestCase):
         for name in cfg._STAGE1_OVERRIDE_ENV.values():
             with patch.dict(os.environ, {name: '1'}):
                 self.assertFalse(operator(200)._sbm128_scope)
+
+
+class SBM64DefaultsTest(unittest.TestCase):
+    setUp = SBM128DefaultsTest.setUp
+
+    def test_corrected_baseline_defaults(self):
+        paths = {120: 'full', 136: 'full', 160: 'm16_dma', 168: 'm16_dma',
+                 176: 'm16_dma', 184: 'm16_dma', 192: 'm16'}
+        self.assertEqual(cfg.SBM64_PATHS, paths)
+        for tokens in range(8, 257, 8):
+            value = namespace['_select_config'](operator(tokens), tokens)
+            self.assertEqual(value.stage1.sbm64_path, paths.get(tokens, 'generic'))
+            if tokens in paths:
+                self.assertEqual((value.stage1.sort_block_m, value.stage1.tile_n), (64, 512))
+                self.assertEqual((value.stage2.block_m, value.stage2.block_n), (32, 256))
+                self.assertEqual(value.stage1.sbm128_path, 'generic')
+
+    def test_sbm64_scope_boundaries(self):
+        for tokens in cfg.SBM64_PATHS:
+            for changed in (dict(shared=False), dict(shared_l2=False), dict(xcd=False), dict(world=4),
+                            dict(epr=32), dict(hidden=4096), dict(inter=4096), dict(topk=2), dict(lr=True)):
+                self.assertFalse(operator(tokens, **changed)._sbm64_scope)
+            self.assertEqual(namespace['_select_config'](operator(tokens), 64).stage1.sbm64_path, 'generic')
+            for name in cfg._STAGE1_OVERRIDE_ENV.values():
+                with patch.dict(os.environ, {name: '1'}):
+                    self.assertFalse(operator(tokens)._sbm64_scope)
+        value = namespace['_select_config'](operator(160), 160).stage1
+        for changes in (dict(tile_n=256), dict(sort_block_m=128), dict(sbm128_path='m16'), dict(sbm64_path='bad')):
+            with self.assertRaises(ValueError):
+                replace(value, **changes)
 
 
 if __name__ == '__main__':

@@ -322,7 +322,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     persist: bool = False, cu_num: int = 0, has_pad: bool = False, g2_bhoist=None, g2_ascale_pf=None,
     g2_spart=None, persist_strided: bool = False, g2_bf16_lds: bool = False, p2p_quant_type: str = "none",
     fixed_slot_dispatch: bool = False, skew_cu: int = 0,
-    xcd_schedule: bool = False, xcd_home: bool = True, shared_xcd_home: bool = True, band_m: int = 1, schedule_audit: bool = False, queue_grid_mult: int = 1, local_reduce: bool = False, local_reduce_xcd_local: bool = False, shared_l2: bool = False, shared_schedule: str = "tail", sbm128_rollout: bool = False):
+    xcd_schedule: bool = False, xcd_home: bool = True, shared_xcd_home: bool = True, band_m: int = 1, schedule_audit: bool = False, queue_grid_mult: int = 1, local_reduce: bool = False, local_reduce_xcd_local: bool = False, shared_l2: bool = False, shared_schedule: str = "tail", sbm128_rollout: bool = False, sbm64_rollout: bool = False):
 # fmt: on
     """Compile fused GEMM2 and weighted cross-rank P2P scatter."""
     if local_reduce:
@@ -390,9 +390,12 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         # Stage2 receives the per-rank expert count, not the constructor's total.
         assert (npes, experts, model_dim, inter_dim, topk, SBM) == (8, 16, 6144, 3072, 4, 128)
         assert max_tok in range(200, 257, 8) and shared_l2 and not local_reduce
+    if sbm64_rollout:
+        assert (npes, experts, model_dim, inter_dim, topk, SBM) == (8, 16, 6144, 3072, 4, 64)
+        assert max_tok in (120, 136, 160, 168, 176, 184, 192) and shared_l2 and not local_reduce
     skip_empty = (shared_l2 and not local_reduce and BM < SBM
                   and (max_tok in (104, 112, 128, 160, 168, 176, 184, 192, 200, 256)
-                       or sbm128_rollout))
+                       or sbm128_rollout or sbm64_rollout))
     shared_early2 = shared_l2 and shared_schedule == "early2"
     shared_joint = shared_l2 and shared_schedule == "jointtail"
     # A queue combines routed and shared N panels with the same home.
@@ -888,7 +891,7 @@ def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cu
     HIDDEN_MAX, INTER_MAX, cu_num, BN=256, BK=256, use_nt=True, g2_bhoist=True,
     g2_ascale_pf=True, g2_spart=402, persist=False, persist_cu=0, persist_strided=False,
     g2_bf16_lds=False, p2p_quant_type="none", fixed_slot_dispatch=False, skew_cu=0,
-    xcd_schedule=False, xcd_home=True, shared_xcd_home=True, band_m=1, schedule_audit=False, work_head=0, audit_ptr=0, queue_grid_mult=1, local_reduce=False, staging_ptr=0, counters_ptr=0, route_masks_ptr=0, local_reduce_xcd_local=False, shared_l2=0, shared_schedule="tail", sbm128_rollout=False):
+    xcd_schedule=False, xcd_home=True, shared_xcd_home=True, band_m=1, schedule_audit=False, work_head=0, audit_ptr=0, queue_grid_mult=1, local_reduce=False, staging_ptr=0, counters_ptr=0, route_masks_ptr=0, local_reduce_xcd_local=False, shared_l2=0, shared_schedule="tail", sbm128_rollout=False, sbm64_rollout=False):
     # fmt: on
     """Compile or reuse one fused Stage2 configuration and launch it."""
     if band_m > 1:
@@ -905,7 +908,7 @@ def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cu
         p2p_quant_type=p2p_quant_type, fixed_slot_dispatch=fixed_slot_dispatch, skew_cu=skew_cu,
         xcd_schedule=xcd_schedule, band_m=band_m, schedule_audit=schedule_audit, queue_grid_mult=queue_grid_mult, local_reduce=local_reduce,
         local_reduce_xcd_local=local_reduce_xcd_local, shared_l2=bool(shared_l2), shared_schedule=shared_schedule,
-        xcd_home=xcd_home, shared_xcd_home=shared_xcd_home, sbm128_rollout=sbm128_rollout,
+        xcd_home=xcd_home, shared_xcd_home=shared_xcd_home, sbm128_rollout=sbm128_rollout, sbm64_rollout=sbm64_rollout,
     )
     max_m_blocks = (row_capacity + BM - 1) // BM
     grid_blocks = launch_cu_num if persist else max_m_blocks
