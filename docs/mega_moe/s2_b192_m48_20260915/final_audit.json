@@ -1,0 +1,79 @@
+{
+  "passed": true,
+  "production_parent": "01eae7186bd336886fcdaa2d8365197c950f8984",
+  "fork_parent": "89e3032d3574d105846b862a6befe04f9d1bd14f",
+  "stage2_sha256": "7d5658ccb50a290d7e510d18d2f812000b782a62104fa95ee6621caf389539bd",
+  "gemm_helper_selector_epilogues_unchanged": true,
+  "all_8_rank_s2_cpu_gpu_isa_matched": true,
+  "offscope_b136_isa_same": true,
+  "runtime_dimension_assertion": "exact b192 shared SBM64/M64 scope requires hidden6144 and inter3072 before specializing N-panel count24",
+  "cpu_experiments": [
+    {
+      "experiment": "b192_s2_m64_m48_20260915_v1",
+      "resources": {
+        "vgpr_count": 202,
+        "sgpr_count": 106,
+        "sgpr_spill_count": 4,
+        "vgpr_spill_count": 0,
+        "private_segment_fixed_size": 0
+      },
+      "gpu_measured": false
+    },
+    {
+      "experiment": "b192_s2_m64_m48_order_20260915_v1",
+      "resources": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "sgpr_spill_count": 3,
+        "vgpr_spill_count": 0,
+        "private_segment_fixed_size": 0
+      },
+      "gpu_measured": false
+    },
+    {
+      "experiment": "b192_s2_m64_m48_acconly_20260915_v1",
+      "resources": {
+        "vgpr_count": 202,
+        "sgpr_count": 106,
+        "sgpr_spill_count": 4,
+        "vgpr_spill_count": 0,
+        "private_segment_fixed_size": 0
+      },
+      "gpu_measured": false
+    },
+    {
+      "experiment": "b192_s2_m64_m48_flat_20260915_v1",
+      "resources": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "sgpr_spill_count": 3,
+        "vgpr_spill_count": 0,
+        "private_segment_fixed_size": 0
+      },
+      "gpu_measured": false
+    },
+    {
+      "experiment": "b192_s2_m64_m48_hotfirst_20260915_v1",
+      "resources": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "sgpr_spill_count": 3,
+        "vgpr_spill_count": 0,
+        "private_segment_fixed_size": 0
+      },
+      "gpu_measured": false
+    },
+    {
+      "experiment": "b192_s2_m64_m48_fixedn_20260915_v1",
+      "resources": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "sgpr_spill_count": 0,
+        "vgpr_spill_count": 0,
+        "private_segment_fixed_size": 0
+      },
+      "gpu_measured": true
+    }
+  ],
+  "tests": "12 existing CPU configuration regressions in each repository; no separate native-process GPU rerun; candidate default selector and runner exercised by the paired GPU harness"
+}
