@@ -159,7 +159,10 @@ for _t in SHARED_FUSED_MTPR_SMALL:
         SHARED_L2_S2_SHAPES[_t] = ((128, 256, 32, _sbm), (256, 256, 32, _sbm))
 del _t, _sbm
 
-# Measured M32/M48/M64 N256 defaults; b72 retains its faster SBM32 path.
+# Measured b72 M16/M32 N256 default; other SBM32 batches stay generic.
+SBM32_PATHS = {72: "m16_m32_n256"}
+
+# Measured M32/M48/M64 N256 defaults.
 SBM64_PATHS = {t: "m32_m48_m64" for t in
                (64, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)}
 
@@ -235,11 +238,19 @@ class Stage1Config:
     shared_xcd_home: bool = True
     # Independent shared/routed 16-bit fields; preserve shared-first issuance.
     shared_packed_heads: bool = False
-    # Isolated measured SBM128 implementation; never inferred from the bucket.
+    # Isolated measured S1 implementations; never inferred from the bucket.
     sbm128_path: str = "generic"
     sbm64_path: str = "generic"
+    sbm32_path: str = "generic"
 
     def __post_init__(self):
+        if self.sbm32_path not in ("generic", "m16_m32_n256"):
+            raise ValueError(f"Unknown SBM32 path {self.sbm32_path!r}")
+        if self.sbm32_path != "generic" and (
+            (self.sort_block_m, self.tile_n) != (32, 256)
+            or self.sbm64_path != "generic" or self.sbm128_path != "generic"
+        ):
+            raise ValueError("Specialized SBM32 requires SBM32/N256 and generic SBM64/SBM128")
         if self.sbm64_path not in ("generic", "full", "m16_dma", "m16", "m32_m48_m64"):
             raise ValueError(f"Unknown SBM64 path {self.sbm64_path!r}")
         if self.sbm64_path != "generic" and (

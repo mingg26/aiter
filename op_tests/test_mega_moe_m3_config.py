@@ -1,4 +1,4 @@
-"""CPU-only regression tests for the measured EP8 SBM64/SBM128 default boundaries."""
+"""CPU-only regression tests for the measured EP8 SBM32/SBM64/SBM128 default boundaries."""
 import ast
 from dataclasses import replace
 import importlib.util
@@ -28,6 +28,9 @@ scope64_expr = next(n.value for n in ast.walk(cls) if isinstance(n, ast.Assign)
     and any(isinstance(t, ast.Attribute) and t.attr == '_sbm64_scope' for t in n.targets))
 scope64_code = compile(ast.Expression(scope64_expr), '<actual SBM64 scope guard>', 'eval')
 
+scope32_expr = next(n.value for n in ast.walk(cls) if isinstance(n, ast.Assign)
+    and any(isinstance(t, ast.Attribute) and t.attr == '_sbm32_scope' for t in n.targets))
+scope32_code = compile(ast.Expression(scope32_expr), '<actual SBM32 scope guard>', 'eval')
 
 def operator(tokens, *, shared=True, shared_l2=True, xcd=True, world=8, epr=16, hidden=6144, inter=3072, topk=4, lr=False):
     op = SimpleNamespace(mtpr=tokens, world_size=world, epr=epr, model_dim=hidden,
@@ -36,6 +39,8 @@ def operator(tokens, *, shared=True, shared_l2=True, xcd=True, world=8, epr=16, 
     op._sbm128_scope = eval(scope_code, vars(cfg), dict(self=op,
         shared_w13=1 if shared else None, shared_w2=1 if shared_l2 else None, shared_xcd_schedule=xcd))
     op._sbm64_scope = eval(scope64_code, vars(cfg), dict(self=op,
+        shared_w13=1 if shared else None, shared_w2=1 if shared_l2 else None, shared_xcd_schedule=xcd))
+    op._sbm32_scope = eval(scope32_code, vars(cfg), dict(self=op,
         shared_w13=1 if shared else None, shared_w2=1 if shared_l2 else None, shared_xcd_schedule=xcd))
     return op
 
@@ -123,7 +128,7 @@ class SBM64DefaultsTest(unittest.TestCase):
     def test_b72_stays_sbm32(self):
         value = namespace['_select_config'](operator(72), 72)
         self.assertFalse(operator(72)._sbm64_scope)
-        self.assertEqual((value.stage1.sort_block_m, value.stage1.tile_n, value.stage1.sbm64_path), (32, 512, 'generic'))
+        self.assertEqual((value.stage1.sort_block_m, value.stage1.tile_n, value.stage1.sbm64_path), (32, 256, 'generic'))
 
     def test_s2_empty_skip_matches_measured_configuration(self):
         source = ast.parse((KERNELS / 'mega_moe_m3/mega_moe_stage2.py').read_text())
@@ -142,6 +147,39 @@ class SBM64DefaultsTest(unittest.TestCase):
             values = dict(shared_l2=True, local_reduce=False, BM=32, SBM=64,
                           max_tok=tokens, sbm128_rollout=False, sbm64_rollout=False)
             self.assertEqual(eval(code, {}, values), tokens in (104,112,128,160,168,176,184,192,200,256))
+
+
+class SBM32DefaultsTest(unittest.TestCase):
+    setUp = SBM128DefaultsTest.setUp
+
+    def test_b72_only_and_stage2_unchanged(self):
+        self.assertEqual(cfg.SBM32_PATHS, {72: 'm16_m32_n256'})
+        for tokens in range(8, 257, 8):
+            value = namespace['_select_config'](operator(tokens), tokens)
+            self.assertEqual(value.stage1.sbm32_path, 'm16_m32_n256' if tokens == 72 else 'generic')
+        value = namespace['_select_config'](operator(72), 72)
+        self.assertEqual((value.stage1.sort_block_m, value.stage1.tile_n), (32, 256))
+        self.assertEqual((value.stage2.block_m, value.stage2.block_n, value.stage2.block_k), (32, 256, 256))
+        self.assertFalse(value.stage2.use_nt)
+        self.assertEqual(value.stage2.shared_schedule, 'jointtail')
+
+    def test_scope_and_explicit_tuning_boundaries(self):
+        for changed in (dict(shared=False), dict(shared_l2=False), dict(xcd=False), dict(world=4),
+                        dict(epr=32), dict(hidden=4096), dict(inter=4096), dict(topk=2), dict(lr=True)):
+            self.assertFalse(operator(72, **changed)._sbm32_scope)
+        for tokens in (64, 71, 73, 80, 88, 96):
+            self.assertFalse(operator(tokens)._sbm32_scope)
+        self.assertEqual(namespace['_select_config'](operator(72), 32).stage1.sbm32_path, 'generic')
+        for name in cfg._STAGE1_OVERRIDE_ENV.values():
+            with patch.dict(os.environ, {name: '1'}):
+                self.assertFalse(operator(72)._sbm32_scope)
+
+    def test_invalid_specialized_geometry_rejected(self):
+        value = namespace['_select_config'](operator(72), 72).stage1
+        for changes in (dict(tile_n=512), dict(sort_block_m=64), dict(sbm64_path='full'),
+                        dict(sbm128_path='m16'), dict(sbm32_path='bad')):
+            with self.assertRaises(ValueError):
+                replace(value, **changes)
 
 if __name__ == '__main__':
     unittest.main()
