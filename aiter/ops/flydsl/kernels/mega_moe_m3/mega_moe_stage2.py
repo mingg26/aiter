@@ -408,7 +408,9 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
             "jointtail requires small EP8 shared L2, band8, cu128, qg5, "
             "common physical-XCD homes and no local reduction")
     leader_empty_drain = (shared_joint and not schedule_audit and not local_reduce
-                          and (max_tok, SBM, BM, BN, BK) == (72, 32, 32, 256, 256))
+                          and (max_tok, SBM, BM, BN, BK) in
+                          ((72, 32, 32, 256, 256), (136, 64, 32, 256, 256),
+                           (200, 128, 32, 256, 256)))
     if leader_empty_drain:
         # One i32 publishes the raw ticket and its selected queue (three bits).
         # Include conservative routed padding and every CTA's failed exit.
