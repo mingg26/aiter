@@ -801,6 +801,12 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
               and shared_schedule == "jointtail" and xcd_home and shared_xcd_home
               and (npes, max_tok, model_dim, inter_dim, BM, BN, BK, SBM, cu_num, queue_grid_mult)
                   == (8, 192, 6144, 3072, 64, 256, 256, 64, 128, 2))
+    # Specialize only the retained b112 BM32 path to its checked N/K sizes.
+    const_nk = (sbm64_rollout and shared_l2 and not local_reduce and not schedule_audit
+                and not has_pad and persist and xcd_schedule and INTER_MAX == inter_dim
+                and shared_schedule == "jointtail" and xcd_home and shared_xcd_home
+                and (npes, max_tok, model_dim, inter_dim, BM, BN, BK, SBM, band_m, cu_num, queue_grid_mult)
+                    == (8, 112, 6144, 3072, 32, 256, 256, 64, 8, 128, 5))
     num_waves = 8 if bigcta else 4
     block_threads = 64 * num_waves
 
@@ -963,6 +969,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         + ("_xl1" if local_reduce_xcd_local else "")
         + ("_ez1" if skip_empty else "")
         + ("_b192m64m48fn1" if bigcta else "")
+        + ("_b112bm32cnk2" if const_nk else "")
         + ("_qdr1" if leader_empty_drain else "")
         + (f"_qm{band_m}_xq{int(xcd_schedule)}" if band_m > 1 else "")
         + ((("" if xcd_home else "_hr0") + ("" if shared_xcd_home else "_hs0")) if band_m > 1 and xcd_schedule else "")
@@ -989,8 +996,8 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         lds = fx.SharedAllocator().allocate(SharedStorage).peek()
         lds_base_i32 = fx.Int32(fx.ptrtoint(lds.buf.ptr))
 
-        num_n_blocks = fx.Int32(model_dim // BN) if bigcta else fx.Int32(i32_hidden) // fx.Int32(BN)
-        k_bytes = (fx.Int32(inter_dim) if bigcta else fx.Int32(i32_inter)) // fx.Int32(1 if is_f8 else 2)
+        num_n_blocks = fx.Int32(model_dim // BN) if (bigcta or const_nk) else fx.Int32(i32_hidden) // fx.Int32(BN)
+        k_bytes = (fx.Int32(inter_dim) if (bigcta or const_nk) else fx.Int32(i32_inter)) // fx.Int32(1 if is_f8 else 2)
         # kernel-invariant scatter resources + peer-base table (loaded into registers once).
         trb_rsrc = buffer_ops.create_buffer_resource_from_addr(arg_trb)
         tvr_rsrc = buffer_ops.create_buffer_resource_from_addr(arg_tvr)
@@ -1155,10 +1162,11 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
 
             else:
                 accm_vecs, m_row, n_block_idx, _n_out_rt = gemm2_compute_v2(lds_base_i32, selected_as, selected_b,
-                    selected_bs, selected_e, selected_a, selected_m_blocks, unit_bx, lane, wave, i32_inter, i32_hidden,
+                    selected_bs, selected_e, selected_a, selected_m_blocks, unit_bx, lane, wave,
+                    i32_inter, fx.Int32(model_dim) if const_nk else i32_hidden,
                     i32_kpad, i32_npad, BM=BM, BN=BN, BK=BK, use_nt=use_nt, INTER_MAX=INTER_MAX, aStages=aStages,
                     has_pad=has_pad, SBM=SBM, g2_bhoist=g2_bhoist, g2_ascale_pf=g2_ascale_pf,
-                    expert_offset=_expert_offset, a_tile_bytes=selected_a_tile_bytes)
+                    expert_offset=_expert_offset, a_tile_bytes=selected_a_tile_bytes, fixed_k_stride=const_nk)
 
             def routed_epilog():
                 (p2p_scatter_epilog_big if bigcta else p2p_scatter_epilog)(lds_base_i32, accm_vecs, n_block_idx, wave, lane, N_OUT=N_OUT,
@@ -1479,7 +1487,7 @@ def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cu
     """Compile or reuse one fused Stage2 configuration and launch it."""
     if (sbm64_rollout and shared_l2 and not local_reduce and not schedule_audit
             and shared_schedule == "jointtail" and xcd_home and shared_xcd_home
-            and (npes, max_tok, BM, BN, BK, SBM) == (8, 192, 64, 256, 256, 64)):
+            and (npes, max_tok, BM, BN, BK, SBM) in ((8, 192, 64, 256, 256, 64), (8, 112, 32, 256, 256, 64))):
         assert int(i32_hidden) == model_dim == 6144 and int(i32_inter) == inter_dim == 3072
     if (sbm128_rollout and shared_l2 and not local_reduce and not schedule_audit
             and shared_schedule == "jointtail"

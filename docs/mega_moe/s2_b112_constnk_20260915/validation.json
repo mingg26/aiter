@@ -1,0 +1,11 @@
+{
+  "config_tests": 12,
+  "config_tests_passed": true,
+  "diff_check_both_repos_passed": true,
+  "tested_kernel_sources_copied_byte_identically": true,
+  "k3_final": "PASS retain b112 only",
+  "gpu_runs": 2,
+  "probes_per_run": 34,
+  "graph_replays": 512,
+  "ranks": 8
+}

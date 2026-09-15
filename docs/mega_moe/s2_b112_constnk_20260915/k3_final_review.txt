@@ -1,0 +1,22 @@
+kimi version 0.43.0
+• Final review: verify both results from raw pairs + the final_measurements.json consistency.fm keys: ['runs', 'resources', 'scope']
+Traceback (most recent call last):
+  File "<stdin>", line 6, in <module>
+AttributeError: 'NoneType' object has no attribute 'get'
+resources: {"passed": true, "baseline": {"vgpr_count": 231, "sgpr_count": 106, "vgpr_spill_count": 0, "sgpr_spill_count": 14, "private_segment_fixed_size": 0, "group_segment_fixed_size": 33088}, "candidate": {"v
+scope: b112 BM32 N/K address constants, quick clock-noise diagnostics only; two capture orders, do not pool or null-subtract
+None passed True ir True ratio 0.997711535 recomp 0.997711535 ci [0.995685432, 0.999382142] faster 10 null 0.998779
+None passed True ir True ratio 0.997646219 recomp 0.997646219 ci [0.996064901, 0.99922953] faster 10 null 0.998989
+Both rounds verified from raw pairs (recomputed ratios exact), both CI upper<1, both 10/12, nulls ~0.999 crossing 1, resources as stated (candidate 231/102/零 spill vs baseline 231/106/14), scope wording honest ("do not pool or null-subtract", "quick clock-noise diagnostics").
+
+  Two directions same sign: -0.229% / -0.235%. Retention rule met (both CI upper <1, same direction). The decision: retain per old rule, keep scope to b112, no qdr/M16 additions, no batch generalization.
+
+  PASS verdict ≤300字.
+
+• **PASS，建议保留。**
+
+  两轮独立重算（raw pairs 逐位一致）：B→A 261.054→260.456us，ratio 0.997712，CI[0.99569,0.99938]；A→B 261.449→260.833us，ratio 0.997646，CI[0.99606,0.99923]。两方向同向、CI 上界均<1、各 10/12——满足预注册保留规则。两轮 null≈0.999 且 CI 跨 1，时钟 waiver 口径合规，scope 明确写"不 pool、不扣 null、quick 诊断"。34 探针/graph512/全 8 ISA/bitexact/终值/独立 math 全过；资源候选 231/102/零 spill 对 baseline 231/106/14 口，无回归。失败记录（v1 VGPR260、反向 v1 路径错误无计时）保留完整。
+
+  **准许按老规则提交**：仅 b112 常量化两文件同步两仓、12 项 CPU 测试+diffcheck；不推广、不加 qdr/M16、不改根 md/台账、只新增 repo 报告。无可退条款外的阻塞。
+
+To resume this session: kimi -r session_ebbbe6de-6172-4d40-b346-b3d01ac8313b

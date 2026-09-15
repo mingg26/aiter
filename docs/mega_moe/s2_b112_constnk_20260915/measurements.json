@@ -1,0 +1,301 @@
+{
+  "scope": "b112 BM32 N/K address constants, quick clock-noise diagnostics only; two capture orders, do not pool or null-subtract",
+  "resources": {
+    "passed": true,
+    "baseline": {
+      "vgpr_count": 231,
+      "sgpr_count": 106,
+      "vgpr_spill_count": 0,
+      "sgpr_spill_count": 14,
+      "private_segment_fixed_size": 0,
+      "group_segment_fixed_size": 33088
+    },
+    "candidate": {
+      "vgpr_count": 231,
+      "sgpr_count": 102,
+      "vgpr_spill_count": 0,
+      "sgpr_spill_count": 0,
+      "private_segment_fixed_size": 0,
+      "group_segment_fixed_size": 33088
+    },
+    "policy": "BM32 constant N/K: VGPR<=256, SGPR<=106 and zero SGPR spills, zero VGPR spills/private; GPU HIP must support8waves/CU"
+  },
+  "runs": [
+    {
+      "result": "/mnt/shared/homes/ming/msa/.scratch/b112_s2_bm32_constnk_20260915_v2/measure/gpu_v1/b112/result.json",
+      "sha256": "6ae9727fca6a21449a23eb0a38e10a56b16ae590946db4833d9e933c45873ef9",
+      "capture_order": [
+        "candidate",
+        "baseline"
+      ],
+      "summary": {
+        "stats": {
+          "A": {
+            "mean_us": 261.0542066891988,
+            "median_us": 260.6309652328491,
+            "cv": 0.003237193858066507,
+            "spread": 0.008502524357399677
+          },
+          "B": {
+            "mean_us": 260.4563291867574,
+            "median_us": 260.20893573760986,
+            "cv": 0.0025639570348160974,
+            "spread": 0.007594314546337696
+          }
+        },
+        "candidate_over_base": 0.9977115347495707,
+        "ci95": [
+          0.9956854322631997,
+          0.9993821423847661
+        ],
+        "faster_pairs": 10,
+        "paired_ratios": [
+          1.0004257258968865,
+          0.9988348594726361,
+          0.9988416088084141,
+          0.9973341900196577,
+          0.9976914505254686,
+          0.9966645587901323,
+          0.9885861304070788,
+          1.0032985236740957,
+          0.9987142486787395,
+          0.9973813241199969,
+          0.9963946749306236,
+          0.9984359635414427
+        ],
+        "log_ratio_stdev": 0.0034400599216548072,
+        "log_ratio_variance": 1.183401226457568e-05
+      },
+      "strict_measurement_passed": false,
+      "null": {
+        "scope": "same baseline graph replayed for both labels; no candidate kernels",
+        "ratio": 0.9987791794426064,
+        "ci95": [
+          0.9963457944298607,
+          1.0009988263617233
+        ]
+      },
+      "all8_occupancy": [
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ]
+      ],
+      "independent_verified": true
+    },
+    {
+      "result": "/mnt/shared/homes/ming/msa/.scratch/b112_s2_bm32_constnk_reverse_20260915_v2/measure/gpu_v1/b112/result.json",
+      "sha256": "385973892f42d43fe8b8d7556d99210a2e78fe062989f231012b760f1445b930",
+      "capture_order": [
+        "baseline",
+        "candidate"
+      ],
+      "summary": {
+        "stats": {
+          "A": {
+            "mean_us": 261.4486821492513,
+            "median_us": 261.41520500183105,
+            "cv": 0.0018553936763521565,
+            "spread": 0.005694060758534015
+          },
+          "B": {
+            "mean_us": 260.8334843317668,
+            "median_us": 260.6612491607666,
+            "cv": 0.002253639229560808,
+            "spread": 0.007203411770634037
+          }
+        },
+        "candidate_over_base": 0.9976462186446476,
+        "ci95": [
+          0.9960649008636869,
+          0.9992295304307528
+        ],
+        "faster_pairs": 10,
+        "paired_ratios": [
+          1.0026300082555608,
+          0.9985976368863861,
+          0.9919401438253579,
+          0.9992482398571827,
+          0.9970890752967762,
+          0.9972852886726673,
+          0.9947966223587963,
+          1.0017528457214868,
+          0.9962741815951827,
+          0.996760912965588,
+          0.999151595498775,
+          0.996274741571013
+        ],
+        "log_ratio_stdev": 0.002916460669839314,
+        "log_ratio_variance": 8.50574283871958e-06
+      },
+      "strict_measurement_passed": false,
+      "null": {
+        "scope": "same baseline graph replayed for both labels; no candidate kernels",
+        "ratio": 0.9989886449340134,
+        "ci95": [
+          0.9971975242530414,
+          1.000827471115146
+        ]
+      },
+      "all8_occupancy": [
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ],
+        [
+          {
+            "ctas": 2,
+            "waves": 8
+          },
+          {
+            "ctas": 2,
+            "waves": 8
+          }
+        ]
+      ],
+      "independent_verified": true
+    }
+  ]
+}

@@ -754,6 +754,7 @@ def gemm2_compute_v2(
     g2_ascale_pf=True,
     expert_offset=0,
     a_tile_bytes=None,
+    fixed_k_stride=False,
 ):
     """Run the GEMM2 K-loop and return accumulators for the selected epilogue."""
     # SBM is the sort padding unit; BM is the compute tile and must divide SBM.
@@ -775,9 +776,10 @@ def gemm2_compute_v2(
     KH_TILE_A = BK // a_pack
     slot_bytes = BM * KH_TILE_A
     # Contraction K = inter_dim runtime (i32_inter); INTER_MAX caps compile-time view/fragment bounds.
+    # Address specialization leaves the runtime K-loop trip count unchanged.
     K_rt = fx.Int32(i32_inter)
-    K_BYTES = K_rt // fx.Int32(a_pack)  # A row stride bytes (runtime)
-    kc_rt = K_rt // fx.Int32(256)  # (K//32)//4//2
+    K_BYTES = (fx.Int32(INTER_MAX) if fixed_k_stride else K_rt) // fx.Int32(a_pack)  # A row stride bytes (runtime)
+    kc_rt = (fx.Int32(INTER_MAX) if fixed_k_stride else K_rt) // fx.Int32(256)  # (K//32)//4//2
     K_TILES_RT = K_rt // fx.Int32(BK)  # runtime K-tile trip count
     kAS_per_chunk_dw = kc_rt * fx.Int32(64)
     kBS_stride_n0_dw = kc_rt * fx.Int32(64)
@@ -787,7 +789,7 @@ def gemm2_compute_v2(
         N_OUT_rt // fx.Int32(32)
     ) * kBS_stride_n0_dw  # (N_OUT//16//2)*stride
     num_n_blocks = N_OUT_rt // fx.Int32(BN)
-    KH4 = K_rt // fx.Int32(4)  # i32 col stride: FP8 is one byte per element
+    KH4 = (fx.Int32(INTER_MAX) if fixed_k_stride else K_rt) // fx.Int32(4)  # i32 col stride: FP8 is one byte per element
     K_SCALE_CHUNKS_MAX = INTER_MAX // 256
 
     # Padded shapes mask weight tiles beyond the real K/N extents.
