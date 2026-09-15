@@ -163,6 +163,10 @@ del _t, _sbm
 SBM32_PATHS = {72: "m16_m32_n256"}
 
 # Measured M32/M48/M64 N256 defaults.
+# Retained S2 M64 complete M32/M48/M64 loops: measured b120..192.
+# b112 remains BM32; b104/b64 have no completed M64 winning result.
+S2_M64_BATCHES = (120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
+
 SBM64_PATHS = {t: "m32_m48_m64" for t in
                (64, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)}
 

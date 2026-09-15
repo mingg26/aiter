@@ -22,7 +22,7 @@ from ..tensor_shim import _run_compiled
 from .. import communication_ops_utils as comm_ops
 
 from .local_reduce import scatter_local_reduce, pack_local_reduce_metadata
-from .mega_moe_config import SHARED_FUSED_MTPR_SMALL, SHARED_L2_SCHEDULES, shared_l2_s2_shape_ok
+from .mega_moe_config import SHARED_FUSED_MTPR_SMALL, SHARED_L2_SCHEDULES, shared_l2_s2_shape_ok, S2_M64_BATCHES
 
 from .gemm2 import (
     _resolve_g2_knobs,
@@ -795,12 +795,13 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
     xcd_schedule: bool = False, xcd_home: bool = True, shared_xcd_home: bool = True, band_m: int = 1, schedule_audit: bool = False, queue_grid_mult: int = 1, local_reduce: bool = False, local_reduce_xcd_local: bool = False, shared_l2: bool = False, shared_schedule: str = "tail", sbm128_rollout: bool = False, sbm64_rollout: bool = False):
 # fmt: on
     """Compile fused GEMM2 and weighted cross-rank P2P scatter."""
-    # b192 uses one eight-wave M64 CTA per CU, with complete M32/M64 K loops.
+    # Measured b120..192 use eight-wave M64 CTAs with complete M32/M48/M64 loops.
     # Keep all other launch configurations on the original four-wave implementation.
     bigcta = (sbm64_rollout and shared_l2 and not local_reduce and not schedule_audit
               and shared_schedule == "jointtail" and xcd_home and shared_xcd_home
-              and (npes, max_tok, model_dim, inter_dim, BM, BN, BK, SBM, cu_num, queue_grid_mult)
-                  == (8, 192, 6144, 3072, 64, 256, 256, 64, 128, 2))
+              and max_tok in S2_M64_BATCHES
+              and (npes, model_dim, inter_dim, BM, BN, BK, SBM, cu_num, queue_grid_mult)
+                  == (8, 6144, 3072, 64, 256, 256, 64, 128, 2))
     # Specialize only the retained b112 BM32 path to its checked N/K sizes.
     const_nk = (sbm64_rollout and shared_l2 and not local_reduce and not schedule_audit
                 and not has_pad and persist and xcd_schedule and INTER_MAX == inter_dim
@@ -968,7 +969,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         + ("_lr1" if local_reduce else "")
         + ("_xl1" if local_reduce_xcd_local else "")
         + ("_ez1" if skip_empty else "")
-        + ("_b192m64m48fn1" if bigcta else "")
+        + (f"_b{max_tok}m64m48fn1" if bigcta else "")
         + ("_b112bm32cnk2" if const_nk else "")
         + ("_qdr1" if leader_empty_drain else "")
         + (f"_qm{band_m}_xq{int(xcd_schedule)}" if band_m > 1 else "")
@@ -1487,7 +1488,8 @@ def run_mega_moe_stage2(arg_aq, arg_ascale, arg_bq, arg_bscale, arg_eids, arg_cu
     """Compile or reuse one fused Stage2 configuration and launch it."""
     if (sbm64_rollout and shared_l2 and not local_reduce and not schedule_audit
             and shared_schedule == "jointtail" and xcd_home and shared_xcd_home
-            and (npes, max_tok, BM, BN, BK, SBM) in ((8, 192, 64, 256, 256, 64), (8, 112, 32, 256, 256, 64))):
+            and (((npes, BM, BN, BK, SBM) == (8, 64, 256, 256, 64) and max_tok in S2_M64_BATCHES)
+                 or (npes, max_tok, BM, BN, BK, SBM) == (8, 112, 32, 256, 256, 64))):
         assert int(i32_hidden) == model_dim == 6144 and int(i32_inter) == inter_dim == 3072
     if (sbm128_rollout and shared_l2 and not local_reduce and not schedule_audit
             and shared_schedule == "jointtail"

@@ -100,6 +100,7 @@ class SBM64DefaultsTest(unittest.TestCase):
     setUp = SBM128DefaultsTest.setUp
 
     def test_retained_defaults(self):
+        self.assertEqual(cfg.S2_M64_BATCHES, tuple(range(120, 193, 8)))
         paths = {t: "m32_m48_m64" for t in (64, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)}
         self.assertEqual(cfg.SBM64_PATHS, paths)
         for tokens in range(8, 257, 8):
@@ -107,9 +108,9 @@ class SBM64DefaultsTest(unittest.TestCase):
             self.assertEqual(value.stage1.sbm64_path, paths.get(tokens, 'generic'))
             if tokens in paths:
                 self.assertEqual((value.stage1.sort_block_m, value.stage1.tile_n), (64, 256))
-                self.assertEqual((value.stage2.block_m, value.stage2.block_n), (64, 128) if tokens == 64 else ((64, 256) if tokens == 192 else (32, 256)))
+                self.assertEqual((value.stage2.block_m, value.stage2.block_n), (64, 128) if tokens == 64 else ((64, 256) if tokens in cfg.S2_M64_BATCHES else (32, 256)))
                 self.assertEqual(value.stage1.sbm128_path, 'generic')
-                self.assertEqual(value.stage2.queue_grid_mult, 2 if tokens == 192 else 5)
+                self.assertEqual(value.stage2.queue_grid_mult, 2 if tokens in cfg.S2_M64_BATCHES else 5)
 
     def test_sbm64_scope_boundaries(self):
         for tokens in cfg.SBM64_PATHS:
@@ -137,10 +138,10 @@ class SBM64DefaultsTest(unittest.TestCase):
                     and any(isinstance(t, ast.Name) and t.id == 'skip_empty' for t in n.targets))
         code = compile(ast.Expression(expr), '<actual S2 skip>', 'eval')
         for tokens in cfg.SBM64_PATHS:
-            bm = 64 if tokens in (64, 192) else 32
+            bm = 64 if tokens == 64 or tokens in cfg.S2_M64_BATCHES else 32
             values = dict(shared_l2=True, local_reduce=False, BM=bm, SBM=64,
                           max_tok=tokens, sbm128_rollout=False, sbm64_rollout=True)
-            self.assertEqual(eval(code, {}, values), tokens not in (64, 152, 192))
+            self.assertEqual(eval(code, {}, values), tokens not in (64, *cfg.S2_M64_BATCHES))
             for change in (dict(local_reduce=True), dict(shared_l2=False), dict(BM=64)):
                 self.assertFalse(eval(code, {}, dict(values, **change)))
         # Existing unpromoted shapes retain their previous skip condition.

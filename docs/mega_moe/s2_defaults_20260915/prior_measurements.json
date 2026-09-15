@@ -1,0 +1,587 @@
+[
+  {
+    "batch": 120,
+    "experiment": "/mnt/shared/homes/ming/msa/.scratch/b120_s2_m64_backward_20260915_v1",
+    "result": "/mnt/shared/homes/ming/msa/.scratch/b120_s2_m64_backward_20260915_v1/measure/gpu_v1/b120/result.json",
+    "result_sha256": "015b3432e35ac47ca0ebe2144390ab2e4d1ce17f89bd65147df99696a2c3f8f5",
+    "summary": {
+      "stats": {
+        "A": {
+          "mean_us": 265.2354669570923,
+          "median_us": 265.0950765609741,
+          "cv": 0.002317551460858858,
+          "spread": 0.008332891526915161
+        },
+        "B": {
+          "mean_us": 264.2691461245219,
+          "median_us": 264.1064691543579,
+          "cv": 0.002916204477224,
+          "spread": 0.009250421756795175
+        }
+      },
+      "candidate_over_base": 0.996355315486595,
+      "ci95": [
+        0.9946331970205382,
+        0.9980440591904831
+      ],
+      "faster_pairs": 11,
+      "paired_ratios": [
+        0.996915889985339,
+        0.9969357840090277,
+        0.9898288139087201,
+        0.9950831669852359,
+        0.9953507283371555,
+        0.9933466737793967,
+        0.9999768553529532,
+        0.9975012362373072,
+        0.9969019095469566,
+        1.0023990177370348,
+        0.9956409158003147,
+        0.9964363513633476
+      ],
+      "log_ratio_stdev": 0.00312643580227993,
+      "log_ratio_variance": 9.77460082577775e-06
+    },
+    "resources": {
+      "passed": true,
+      "baseline": {
+        "vgpr_count": 231,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 14,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 33088
+      },
+      "candidate": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 0,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 66112
+      },
+      "policy": "Authorized big CTA: VGPR<=256, SGPR<=106 and zero SGPR spills, zero VGPR spills/private; GPU HIP must support8waves/CU"
+    },
+    "strict_measurement_passed": false
+  },
+  {
+    "batch": 128,
+    "experiment": "/mnt/shared/homes/ming/msa/.scratch/b128_s2_m64_backward_20260915_v1",
+    "result": "/mnt/shared/homes/ming/msa/.scratch/b128_s2_m64_backward_20260915_v1/measure/gpu_v1/b128/result.json",
+    "result_sha256": "e44d0928f6fdb5c841b28b06376287bdb2d5938d6d9c5c574e980900a2064993",
+    "summary": {
+      "stats": {
+        "A": {
+          "mean_us": 266.8396790822347,
+          "median_us": 266.66446685791016,
+          "cv": 0.002732390190592493,
+          "spread": 0.009446655104112134
+        },
+        "B": {
+          "mean_us": 266.21252218882245,
+          "median_us": 265.91955184936523,
+          "cv": 0.002506864555939532,
+          "spread": 0.006681997778721628
+        }
+      },
+      "candidate_over_base": 0.9976502227341174,
+      "ci95": [
+        0.9959120680590947,
+        0.9991329898179051
+      ],
+      "faster_pairs": 10,
+      "paired_ratios": [
+        1.0012510558980443,
+        0.9953678287678256,
+        0.9986733462414386,
+        0.9987557693761441,
+        0.9984276186166661,
+        0.9974190189443222,
+        0.9902305123999747,
+        1.0019241022298715,
+        0.9967474572457173,
+        0.9967954140316992,
+        0.9975949820260149,
+        0.9986642789689675
+      ],
+      "log_ratio_stdev": 0.002981049533110096,
+      "log_ratio_variance": 8.886656318855923e-06
+    },
+    "resources": {
+      "passed": true,
+      "baseline": {
+        "vgpr_count": 231,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 14,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 33088
+      },
+      "candidate": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 0,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 66112
+      },
+      "policy": "Authorized big CTA: VGPR<=256, SGPR<=106 and zero SGPR spills, zero VGPR spills/private; GPU HIP must support8waves/CU"
+    },
+    "strict_measurement_passed": false
+  },
+  {
+    "batch": 136,
+    "experiment": "/mnt/shared/homes/ming/msa/.scratch/b136_s2_m64_backward_20260915_v1",
+    "result": "/mnt/shared/homes/ming/msa/.scratch/b136_s2_m64_backward_20260915_v1/measure/gpu_v1/b136/result.json",
+    "result_sha256": "9bd823351ecafb88f4a3206aac75078f76914959cb4928aa2777366bfc8bb87e",
+    "summary": {
+      "stats": {
+        "A": {
+          "mean_us": 272.0955244700114,
+          "median_us": 271.7508363723755,
+          "cv": 0.002742291758732111,
+          "spread": 0.007702247209323482
+        },
+        "B": {
+          "mean_us": 270.2195080121358,
+          "median_us": 270.0867700576782,
+          "cv": 0.0021471972474483834,
+          "spread": 0.008297920441581683
+        }
+      },
+      "candidate_over_base": 0.9931066281093194,
+      "ci95": [
+        0.9911459295793058,
+        0.9948954656786835
+      ],
+      "faster_pairs": 12,
+      "paired_ratios": [
+        0.9965240315792759,
+        0.9936917903757396,
+        0.98781346288015,
+        0.9873272086453535,
+        0.9947532514993106,
+        0.9955219441637483,
+        0.9972354786639186,
+        0.9932683695900936,
+        0.993324612774361,
+        0.9940801793667725,
+        0.9879608048208354,
+        0.9958459984859047
+      ],
+      "log_ratio_stdev": 0.003519324682241872,
+      "log_ratio_variance": 1.2385646219036852e-05
+    },
+    "resources": {
+      "passed": true,
+      "baseline": {
+        "vgpr_count": 233,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 14,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 33088
+      },
+      "candidate": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 0,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 66112
+      },
+      "policy": "Authorized big CTA: VGPR<=256, SGPR<=106 and zero SGPR spills, zero VGPR spills/private; GPU HIP must support8waves/CU"
+    },
+    "strict_measurement_passed": false
+  },
+  {
+    "batch": 144,
+    "experiment": "/mnt/shared/homes/ming/msa/.scratch/b144_s2_m64_backward_20260915_v1",
+    "result": "/mnt/shared/homes/ming/msa/.scratch/b144_s2_m64_backward_20260915_v1/measure/gpu_v1/b144/result.json",
+    "result_sha256": "1da7ba43159201b56ab578a52d65cec03e916cf5a76c3c6dbd49dfee1e45a4ea",
+    "summary": {
+      "stats": {
+        "A": {
+          "mean_us": 277.4149497350057,
+          "median_us": 277.2563600540161,
+          "cv": 0.0022876263452987445,
+          "spread": 0.007587627642104584
+        },
+        "B": {
+          "mean_us": 274.55540736516315,
+          "median_us": 274.442982673645,
+          "cv": 0.0014340747196441668,
+          "spread": 0.004532043420776468
+        }
+      },
+      "candidate_over_base": 0.9896936215906631,
+      "ci95": [
+        0.9885805113305625,
+        0.9907765626087841
+      ],
+      "faster_pairs": 12,
+      "paired_ratios": [
+        0.9898889792967275,
+        0.9903518742990359,
+        0.9851232025031064,
+        0.9888763634302887,
+        0.9910647088316075,
+        0.9939095653205917,
+        0.9905244320505466,
+        0.9902640347735758,
+        0.9890608340478552,
+        0.9885804852514662,
+        0.9895089256303033,
+        0.9891926039334601
+      ],
+      "log_ratio_stdev": 0.0020355290309866836,
+      "log_ratio_variance": 4.1433784359895876e-06
+    },
+    "resources": {
+      "passed": true,
+      "baseline": {
+        "vgpr_count": 231,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 14,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 33088
+      },
+      "candidate": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 0,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 66112
+      },
+      "policy": "Authorized big CTA: VGPR<=256, SGPR<=106 and zero SGPR spills, zero VGPR spills/private; GPU HIP must support8waves/CU"
+    },
+    "strict_measurement_passed": false
+  },
+  {
+    "batch": 152,
+    "experiment": "/mnt/shared/homes/ming/msa/.scratch/b152_s2_m64_backward_20260915_v1",
+    "result": "/mnt/shared/homes/ming/msa/.scratch/b152_s2_m64_backward_20260915_v1/measure/gpu_v1/b152/result.json",
+    "result_sha256": "344cb6b7938ce8540e656bd25df21fbf8927b1c2e7e2c25d5cd36be28e796888",
+    "summary": {
+      "stats": {
+        "A": {
+          "mean_us": 284.3834352493286,
+          "median_us": 284.01483058929443,
+          "cv": 0.002464501052467461,
+          "spread": 0.0061480700157776225
+        },
+        "B": {
+          "mean_us": 278.50637753804523,
+          "median_us": 278.39168071746826,
+          "cv": 0.0022951982351403087,
+          "spread": 0.007373702597465138
+        }
+      },
+      "candidate_over_base": 0.9793343981191088,
+      "ci95": [
+        0.9782546088558068,
+        0.9802107219581827
+      ],
+      "faster_pairs": 12,
+      "paired_ratios": [
+        0.9812025711629982,
+        0.9794695809641559,
+        0.9807142468295519,
+        0.9784294624389649,
+        0.9795368608840012,
+        0.9805344475989849,
+        0.9799550625154635,
+        0.9798750697640103,
+        0.9775439873657281,
+        0.9747543149152319,
+        0.981096218541269,
+        0.9789192871385038
+      ],
+      "log_ratio_stdev": 0.0018456281109664012,
+      "log_ratio_variance": 3.406343123989406e-06
+    },
+    "resources": {
+      "passed": true,
+      "baseline": {
+        "vgpr_count": 231,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 13,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 33088
+      },
+      "candidate": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 0,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 66112
+      },
+      "policy": "Authorized big CTA: VGPR<=256, SGPR<=106 and zero SGPR spills, zero VGPR spills/private; GPU HIP must support8waves/CU"
+    },
+    "strict_measurement_passed": false
+  },
+  {
+    "batch": 160,
+    "experiment": "/mnt/shared/homes/ming/msa/.scratch/b160_s2_m64_backward_20260915_v1",
+    "result": "/mnt/shared/homes/ming/msa/.scratch/b160_s2_m64_backward_20260915_v1/measure/gpu_v1/b160/result.json",
+    "result_sha256": "f5c176c9e01bbf331179f1ce26b8e4b47d5ccaedf4b70ec5ce4321e99e972d5f",
+    "summary": {
+      "stats": {
+        "A": {
+          "mean_us": 285.9045187632243,
+          "median_us": 285.7503318786621,
+          "cv": 0.00166003810888894,
+          "spread": 0.0051179045603580295
+        },
+        "B": {
+          "mean_us": 280.56661049524945,
+          "median_us": 280.4638719558716,
+          "cv": 0.00189606901595122,
+          "spread": 0.006300370130684424
+        }
+      },
+      "candidate_over_base": 0.9813293736246349,
+      "ci95": [
+        0.9801512993556111,
+        0.9825397551119203
+      ],
+      "faster_pairs": 12,
+      "paired_ratios": [
+        0.9789027297126417,
+        0.981406918066147,
+        0.9811473254407318,
+        0.9810201198818561,
+        0.9828725871506457,
+        0.9856429031119079,
+        0.9843525531784073,
+        0.9815642170851124,
+        0.9806147128279465,
+        0.9774610012209493,
+        0.9801982980696878,
+        0.9807962339104129
+      ],
+      "log_ratio_stdev": 0.0022411696858700434,
+      "log_ratio_variance": 5.022841560862829e-06
+    },
+    "resources": {
+      "passed": true,
+      "baseline": {
+        "vgpr_count": 231,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 14,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 33088
+      },
+      "candidate": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 0,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 66112
+      },
+      "policy": "Authorized big CTA: VGPR<=256, SGPR<=106 and zero SGPR spills, zero VGPR spills/private; GPU HIP must support8waves/CU"
+    },
+    "strict_measurement_passed": false
+  },
+  {
+    "batch": 168,
+    "experiment": "/mnt/shared/homes/ming/msa/.scratch/b168_s2_m64_backward_20260915_v1",
+    "result": "/mnt/shared/homes/ming/msa/.scratch/b168_s2_m64_backward_20260915_v1/measure/gpu_v1/b168/result.json",
+    "result_sha256": "b4d4881e620f7bc7030f73e215f395d244d916e732417f052fb69010c4cefbfa",
+    "summary": {
+      "stats": {
+        "A": {
+          "mean_us": 290.1556181907654,
+          "median_us": 289.919810295105,
+          "cv": 0.002460981221757583,
+          "spread": 0.008162196301470187
+        },
+        "B": {
+          "mean_us": 285.2602219581604,
+          "median_us": 285.13601303100586,
+          "cv": 0.0024931979486828865,
+          "spread": 0.008029867307200813
+        }
+      },
+      "candidate_over_base": 0.983128301282111,
+      "ci95": [
+        0.9815962521101644,
+        0.9846127862648908
+      ],
+      "faster_pairs": 12,
+      "paired_ratios": [
+        0.9819175422479341,
+        0.9877303102193086,
+        0.9839064304205388,
+        0.984117669611323,
+        0.983079875689447,
+        0.9775673739006616,
+        0.9840400056925356,
+        0.98180732370451,
+        0.9840331189588347,
+        0.9796547075155226,
+        0.9827943223294393,
+        0.9869342947214981
+      ],
+      "log_ratio_stdev": 0.0028321235681333257,
+      "log_ratio_variance": 8.020923905176239e-06
+    },
+    "resources": {
+      "passed": true,
+      "baseline": {
+        "vgpr_count": 231,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 14,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 33088
+      },
+      "candidate": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 0,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 66112
+      },
+      "policy": "Authorized big CTA: VGPR<=256, SGPR<=106 and zero SGPR spills, zero VGPR spills/private; GPU HIP must support8waves/CU"
+    },
+    "strict_measurement_passed": false
+  },
+  {
+    "batch": 176,
+    "experiment": "/mnt/shared/homes/ming/msa/.scratch/b176_s2_m64_backward_20260915_v1",
+    "result": "/mnt/shared/homes/ming/msa/.scratch/b176_s2_m64_backward_20260915_v1/measure/gpu_v1/b176/result.json",
+    "result_sha256": "c0027b1ba70e5e0034f535e8b3629e548048af09f1061bb3a4c144f7800a19b3",
+    "summary": {
+      "stats": {
+        "A": {
+          "mean_us": 292.1495803197225,
+          "median_us": 291.99845790863037,
+          "cv": 0.0012900146029089373,
+          "spread": 0.003957941797796892
+        },
+        "B": {
+          "mean_us": 287.9379121462504,
+          "median_us": 287.65610218048096,
+          "cv": 0.002578890930785283,
+          "spread": 0.00738985375499468
+        }
+      },
+      "candidate_over_base": 0.9855816133075891,
+      "ci95": [
+        0.984678701255242,
+        0.9866474490750405
+      ],
+      "faster_pairs": 12,
+      "paired_ratios": [
+        0.984929308101565,
+        0.9847107245522126,
+        0.9871851986351585,
+        0.9841690019499371,
+        0.9842565894764347,
+        0.9891365763381833,
+        0.9855175949463969,
+        0.9852297045036227,
+        0.9846170392261397,
+        0.9836233350065571,
+        0.9846438627491976,
+        0.9889794042438893
+      ],
+      "log_ratio_stdev": 0.0018705896067479101,
+      "log_ratio_variance": 3.4991054768733008e-06
+    },
+    "resources": {
+      "passed": true,
+      "baseline": {
+        "vgpr_count": 231,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 14,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 33088
+      },
+      "candidate": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 0,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 66112
+      },
+      "policy": "Authorized big CTA: VGPR<=256, SGPR<=106 and zero SGPR spills, zero VGPR spills/private; GPU HIP must support8waves/CU"
+    },
+    "strict_measurement_passed": false
+  },
+  {
+    "batch": 184,
+    "experiment": "/mnt/shared/homes/ming/msa/.scratch/b184_s2_m64_backward_20260915_v2",
+    "result": "/mnt/shared/homes/ming/msa/.scratch/b184_s2_m64_backward_20260915_v2/measure/gpu_v1/b184/result.json",
+    "result_sha256": "6ef4a614253214d6e140ad23be1d29bff0cbad414a5c6ecb319d54bf77697354",
+    "summary": {
+      "stats": {
+        "A": {
+          "mean_us": 298.2743779818217,
+          "median_us": 298.10657501220703,
+          "cv": 0.002343526301338471,
+          "spread": 0.007337176716608357
+        },
+        "B": {
+          "mean_us": 293.60016504923504,
+          "median_us": 293.3565092086792,
+          "cv": 0.002716455827798197,
+          "spread": 0.00791633691042567
+        }
+      },
+      "candidate_over_base": 0.9843282992006561,
+      "ci95": [
+        0.9824611744139101,
+        0.9861289684297593
+      ],
+      "faster_pairs": 12,
+      "paired_ratios": [
+        0.9838053465745958,
+        0.9896872796302514,
+        0.9887485311708915,
+        0.9849965471097814,
+        0.9789843963119859,
+        0.9854021594651906,
+        0.985399246700413,
+        0.9820920209724632,
+        0.9871316556427991,
+        0.9788218876490554,
+        0.9837314593679947,
+        0.9832023953954147
+      ],
+      "log_ratio_stdev": 0.003420697069811062,
+      "log_ratio_variance": 1.1701168443413989e-05
+    },
+    "resources": {
+      "passed": true,
+      "baseline": {
+        "vgpr_count": 231,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 14,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 33088
+      },
+      "candidate": {
+        "vgpr_count": 201,
+        "sgpr_count": 106,
+        "vgpr_spill_count": 0,
+        "sgpr_spill_count": 0,
+        "private_segment_fixed_size": 0,
+        "group_segment_fixed_size": 66112
+      },
+      "policy": "Authorized big CTA: VGPR<=256, SGPR<=106 and zero SGPR spills, zero VGPR spills/private; GPU HIP must support8waves/CU"
+    },
+    "strict_measurement_passed": false
+  }
+]
