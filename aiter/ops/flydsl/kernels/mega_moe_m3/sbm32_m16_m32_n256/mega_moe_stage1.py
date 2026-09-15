@@ -250,6 +250,9 @@ def compile_mega_moe_stage1(
         assert max_shared_claims < (1 << 16)
         assert max_routed_claims < (1 << 15)
 
+    leader_empty_drain = (shared_packed and int(fuse_mtpr) == 72
+        and sort_block_m == 32 and tile_n == 256 and not schedule_audit)
+
     a_lds_size = sort_block_m * A_K_STEP_BYTES
     a_lds_i32 = a_lds_size // 4
     cs_tile_n = tile_n // 2
@@ -374,6 +377,7 @@ def compile_mega_moe_stage1(
         + ("_shna2" if shared_l13 else "")
         + ("_shsmall1" if shared_l13 and small_xcd else "")
         + ("_shpacked1" if shared_packed else "")
+        + ("_lprobe1" if leader_empty_drain else "")
         # A batch larger than its sort block that the block does not divide counts
         # shared tiles with a ceiling and carries a short last tile. That changes
         # the code object, so it belongs in the name: the A-read bounds above were
@@ -770,6 +774,9 @@ def compile_mega_moe_stage1(
             if const_expr(shared_xcd_home != xcd_home):
                 shared_home_queue = (physical_xcd if shared_xcd_home else ticket) & fx.Int32(7)
         queue_attempt = fx.Int32(0)
+        # Leader-only queue phase: 0 shared, 1 routed, 2 completely exhausted.
+        probe_phase = fx.Int32(0)
+        probe_attempt = fx.Int32(0)
         flags = fx.Int32(0)
         def _decode_xcd(local_work, work_shard):
             local_band = local_work // fx.Int32(BAND_M * (N_TILES // 8))
@@ -822,49 +829,80 @@ def compile_mega_moe_stage1(
             else:
                 shared_work_shard = work_shard
             if tid == fx.Int32(0):
-                work = fx.Int32(0)
-                if const_expr(shared_l13):
-                    shared_claim = shared_work
-                    if shared_active:
-                        if const_expr(shared_xcd):
-                            if const_expr(small_xcd):
-                                # Each queue owns q+8*j panels. Every CTA
-                                # exhausts each queue exactly once.
-                                shared_small_m = (fuse_mtpr + sort_block_m - 1) // sort_block_m
-                                if const_expr(N_TILES == 12):
-                                    shared_limit = (shared_work_shard < fx.Int32(4)).select(fx.Int32(2 * shared_small_m), fx.Int32(shared_small_m))
-                                else:
-                                    shared_limit = fx.Int32(3 * shared_small_m)
-                                if const_expr(shared_packed):
-                                    shared_local = fx.Int32(comm_ops.atomic_add_agent(
-                                        a_work_head + fx.Int64(shared_work_shard) * fx.Int64(64), fx.Int32(1))) & fx.Int32(0xffff)
-                                else:
-                                    shared_period = fx.Int64(shared_limit) + fx.Int64(launch_grid_x)
-                                    shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
-                                        shared_count_addr + fx.Int64(shared_work_shard) * fx.Int64(64), fx.Int64(1))) % shared_period)
-                                shared_m = shared_local % fx.Int32(shared_small_m)
-                                shared_n = shared_work_shard + (shared_local // fx.Int32(shared_small_m)) * fx.Int32(8)
-                                shared_claim = (shared_local < shared_limit).select(
-                                    shared_m * fx.Int32(N_TILES) + shared_n, total_work + fx.Int32(1))
-                            else:
-                                shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
-                                    shared_count_addr + fx.Int64(shared_work_shard) * fx.Int64(64), fx.Int64(1))) % shared_count_period)
-                                shared_claim = (shared_local < fx.Int32(shared_tasks_per_queue)).select(
-                                    _decode_xcd(shared_local, shared_work_shard), total_work + fx.Int32(1))
+                if const_expr(leader_empty_drain):
+                    # Absorb only exhausted queues. Every queue still gets one
+                    # failed atomic per CTA; padding tickets still get broadcast.
+                    # No LDS write or CTA barrier occurs inside this leader loop.
+                    work = total_work + fx.Int32(1)
+                    probe_active = fx.Boolean(True)
+                    while probe_active:
+                        probe_shard = (home_queue + probe_attempt) & fx.Int32(7)
+                        if probe_phase == fx.Int32(0):
+                            shared_small_m = (fuse_mtpr + sort_block_m - 1) // sort_block_m
+                            shared_limit = fx.Int32(N_SLOTS * shared_small_m)
+                            shared_local = fx.Int32(comm_ops.atomic_add_agent(
+                                a_work_head + fx.Int64(probe_shard) * fx.Int64(64),
+                                fx.Int32(1))) & fx.Int32(0xffff)
+                            shared_m = shared_local % fx.Int32(shared_small_m)
+                            shared_n = probe_shard + (shared_local // fx.Int32(shared_small_m)) * fx.Int32(8)
+                            work = (shared_local < shared_limit).select(
+                                shared_m * fx.Int32(N_TILES) + shared_n,
+                                total_work + fx.Int32(1))
                         else:
-                            shared_claim = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(shared_count_addr, fx.Int64(1))) % shared_count_period)
-                    if const_expr(shared_xcd):
-                        if shared_active:
-                            work = shared_claim
+                            work = _claim_routed(probe_shard) + shared_work
+                        if work > total_work:
+                            probe_attempt = probe_attempt + fx.Int32(1)
+                            if probe_attempt == fx.Int32(8):
+                                probe_attempt = fx.Int32(0)
+                                probe_phase = probe_phase + fx.Int32(1)
+                            probe_active = probe_phase < fx.Int32(2)
                         else:
-                            work = _claim_routed(work_shard) + shared_work
-                    else:
-                        if shared_claim < shared_work:
-                            work = shared_claim
-                        else:
-                            work = _claim_routed(work_shard) + shared_work
+                            # work == total_work is a padding ticket, not EOF.
+                            probe_active = fx.Boolean(False)
                 else:
-                    work = _claim_routed(work_shard)
+                    work = fx.Int32(0)
+                    if const_expr(shared_l13):
+                        shared_claim = shared_work
+                        if shared_active:
+                            if const_expr(shared_xcd):
+                                if const_expr(small_xcd):
+                                    # Each queue owns q+8*j panels. Every CTA
+                                    # exhausts each queue exactly once.
+                                    shared_small_m = (fuse_mtpr + sort_block_m - 1) // sort_block_m
+                                    if const_expr(N_TILES == 12):
+                                        shared_limit = (shared_work_shard < fx.Int32(4)).select(fx.Int32(2 * shared_small_m), fx.Int32(shared_small_m))
+                                    else:
+                                        shared_limit = fx.Int32(3 * shared_small_m)
+                                    if const_expr(shared_packed):
+                                        shared_local = fx.Int32(comm_ops.atomic_add_agent(
+                                            a_work_head + fx.Int64(shared_work_shard) * fx.Int64(64), fx.Int32(1))) & fx.Int32(0xffff)
+                                    else:
+                                        shared_period = fx.Int64(shared_limit) + fx.Int64(launch_grid_x)
+                                        shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
+                                            shared_count_addr + fx.Int64(shared_work_shard) * fx.Int64(64), fx.Int64(1))) % shared_period)
+                                    shared_m = shared_local % fx.Int32(shared_small_m)
+                                    shared_n = shared_work_shard + (shared_local // fx.Int32(shared_small_m)) * fx.Int32(8)
+                                    shared_claim = (shared_local < shared_limit).select(
+                                        shared_m * fx.Int32(N_TILES) + shared_n, total_work + fx.Int32(1))
+                                else:
+                                    shared_local = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
+                                        shared_count_addr + fx.Int64(shared_work_shard) * fx.Int64(64), fx.Int64(1))) % shared_count_period)
+                                    shared_claim = (shared_local < fx.Int32(shared_tasks_per_queue)).select(
+                                        _decode_xcd(shared_local, shared_work_shard), total_work + fx.Int32(1))
+                            else:
+                                shared_claim = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(shared_count_addr, fx.Int64(1))) % shared_count_period)
+                        if const_expr(shared_xcd):
+                            if shared_active:
+                                work = shared_claim
+                            else:
+                                work = _claim_routed(work_shard) + shared_work
+                        else:
+                            if shared_claim < shared_work:
+                                work = shared_claim
+                            else:
+                                work = _claim_routed(work_shard) + shared_work
+                    else:
+                        work = _claim_routed(work_shard)
                 if const_expr(joint_work_flags):
                     # Publish the ticket and its skip/continue flags together.
                     # Keep both as i32 so no ticket bits are lost by packing.
@@ -987,16 +1025,21 @@ def compile_mega_moe_stage1(
                     _do_scheduled_tile(work, wait_payload=_wait_payload_after_b)
                 else:
                     _do_scheduled_tile(work)
-            if const_expr(xcd_schedule):
-                next_queue_attempt = queue_attempt + ((flags & fx.Int32(1)) == fx.Int32(0)).select(fx.Int32(1), fx.Int32(0))
-                # Finish visiting all shared queues before returning to our home
-                # routed queue. No wait for other CTAs to finish shared GEMMs.
-                queue_attempt = (shared_active & (next_queue_attempt == fx.Int32(8))).select(
-                    fx.Int32(0), next_queue_attempt) if const_expr(shared_xcd) else next_queue_attempt
-                consumer_active = queue_attempt < fx.Int32(8)
-            else:
+            if const_expr(leader_empty_drain):
+                # Only the all-queues-done ticket has keep_drawing == 0.
+                # Every wave receives it through the unchanged four barriers.
                 consumer_active = (flags & fx.Int32(1)) != fx.Int32(0)
-            shared_active = (shared_active & (next_queue_attempt < fx.Int32(8))) if const_expr(shared_xcd) else shared_active
+            else:
+                if const_expr(xcd_schedule):
+                    next_queue_attempt = queue_attempt + ((flags & fx.Int32(1)) == fx.Int32(0)).select(fx.Int32(1), fx.Int32(0))
+                    # Finish visiting all shared queues before returning to our home
+                    # routed queue. No wait for other CTAs to finish shared GEMMs.
+                    queue_attempt = (shared_active & (next_queue_attempt == fx.Int32(8))).select(
+                        fx.Int32(0), next_queue_attempt) if const_expr(shared_xcd) else next_queue_attempt
+                    consumer_active = queue_attempt < fx.Int32(8)
+                else:
+                    consumer_active = (flags & fx.Int32(1)) != fx.Int32(0)
+                shared_active = (shared_active & (next_queue_attempt < fx.Int32(8))) if const_expr(shared_xcd) else shared_active
 
     @flyc.jit
     def launch(
