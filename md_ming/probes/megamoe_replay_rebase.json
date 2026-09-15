@@ -1,0 +1,30 @@
+{
+  "/mnt/shared/homes/ming/msa/megamoe-s1-1k-prod/aiter/aiter/ops/flydsl/kernels/mega_moe_m3/mega_moe_config.py": [
+    {
+      "before": "e308442d78a66fb847f63fe8183d9cbd07d3daf6a0d7399da23a3f6c8c675ecf",
+      "after": "83bc6a605528ab4498a8655475e250939c155622feb79daf198b1474624256d4"
+    }
+  ],
+  "/mnt/shared/homes/ming/msa/megamoe-s1-1k-prod/aiter/aiter/ops/flydsl/kernels/mega_moe_m3/mega_moe_m3.py": [
+    {
+      "before": "1cf12b1c48032657d0ce6937a9f4f3de9354224d961a8d567047c64808b39023",
+      "after": "1d3f93596de708298ae42a17fe2605f25f2ae027097e51e6b34e6e2ea0ec97b3"
+    }
+  ],
+  "/mnt/shared/homes/ming/msa/megamoe-s1-1k-prod/aiter/aiter/ops/flydsl/kernels/mega_moe_m3/mega_moe_stage2.py": [
+    {
+      "before": "712628363e0d1577cf711389e873c1a4f99c49d19b843faa03e1c957e9da6995",
+      "after": "f38b2df2f75c91aca9da92201fd72f2df578b172883f97941d37642c06d58218"
+    },
+    {
+      "before": "7d5658ccb50a290d7e510d18d2f812000b782a62104fa95ee6621caf389539bd",
+      "after": "f38b2df2f75c91aca9da92201fd72f2df578b172883f97941d37642c06d58218"
+    }
+  ],
+  "/mnt/shared/homes/ming/msa/megamoe-s1-1k-prod/aiter/aiter/ops/flydsl/kernels/mega_moe_m3/gemm2.py": [
+    {
+      "before": "f5cbb6314c6ecde79b448a72126cafc2f73653832fe1b41747214a4e716f74d9",
+      "after": "0c225b9b44e52e58935b0745483fb617f77a7317bccf4aed07cf0543b7f5689f"
+    }
+  ]
+}
