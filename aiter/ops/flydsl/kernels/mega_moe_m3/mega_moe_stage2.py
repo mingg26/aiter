@@ -407,6 +407,16 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         raise ValueError(
             "jointtail requires small EP8 shared L2, band8, cu128, qg5, "
             "common physical-XCD homes and no local reduction")
+    leader_empty_drain = (shared_joint and not schedule_audit and not local_reduce
+                          and (max_tok, SBM, BM, BN, BK) == (72, 32, 32, 256, 256))
+    if leader_empty_drain:
+        # One i32 publishes the raw ticket and its selected queue (three bits).
+        # Include conservative routed padding and every CTA's failed exit.
+        max_rows = npes * max_tok * topk + experts * SBM
+        max_blocks = (max_rows + BM - 1) // BM
+        max_routed = ((max_blocks + band_m - 1) // band_m) * band_m * (model_dim // BN // 8)
+        max_shared = ((((max_tok + BM - 1) // BM) + band_m - 1) // band_m) * band_m * (model_dim // BN // 8)
+        assert max_routed + max_shared + cu_num * queue_grid_mult < (1 << 28)
     if shared_early2:
         # The early2 schedule is validated on two operating points: the small
         # EP8 batches without local reduction, whose tiles are the same
@@ -471,6 +481,7 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         + ("_lr1" if local_reduce else "")
         + ("_xl1" if local_reduce_xcd_local else "")
         + ("_ez1" if skip_empty else "")
+        + ("_qdr1" if leader_empty_drain else "")
         + (f"_qm{band_m}_xq{int(xcd_schedule)}" if band_m > 1 else "")
         + ((("" if xcd_home else "_hr0") + ("" if shared_xcd_home else "_hs0")) if band_m > 1 and xcd_schedule else "")
         + (f"_qa{int(schedule_audit)}_qg{queue_grid_mult}" if band_m > 1 else "")
@@ -690,92 +701,154 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
             # jointtail visits eight combined queues without a second sweep.
             # XCD-local routed work must only visit home; other routed work may
             # visit all eight queues. The block-ID rule chooses shared-first CTAs.
-            while attempt < fx.Int32((9 if local_reduce_xcd_local else 16) if shared_early2 else (1 if local_reduce_xcd_local and not shared_l2 else 8)):
-                if const_expr(shared_early2):
-                    if const_expr(local_reduce_xcd_local):
-                        phase_end = shared_first.select(fx.Int32(8), fx.Int32(1))
-                        shared_active = (attempt < phase_end) == shared_first
-                        shared_attempt = shared_first.select(attempt, attempt - fx.Int32(1))
-                        queue = shared_active.select((home + shared_attempt) % fx.Int32(8), home)
-                    else:
-                        shared_active = (attempt < fx.Int32(8)) == shared_first
-                        if const_expr(xcd_schedule and shared_xcd_home != xcd_home):
-                            queue = (shared_active.select(shared_home, home) + attempt) % fx.Int32(8)
+            if const_expr(leader_empty_drain):
+                probe_attempt = fx.Int32(0)
+                consumer_active = fx.Boolean(True)
+                while consumer_active:
+                    # claim_ptr aliases the previous tile's epilogue LDS.
+                    fx.barrier()
+                    if tx_i32 == fx.Int32(0):
+                        encoded = fx.Int32(-1)
+                        probing = fx.Boolean(True)
+                        while probing:
+                            if probe_attempt < fx.Int32(8):
+                                probe_queue = (home + probe_attempt) % fx.Int32(8)
+                                claim = fx.Int32(comm_ops.atomic_add_agent(
+                                    arg_work_head + fx.Int64(probe_queue) * fx.Int64(256), fx.Int32(1)))
+                                if claim < queue_size + fx.Int32(shared_queue_size):
+                                    # Padding is published too; absorb only exhausted queues.
+                                    encoded = (claim << fx.Int32(3)) | probe_queue
+                                    probing = fx.Boolean(False)
+                                else:
+                                    probe_attempt = probe_attempt + fx.Int32(1)
+                            else:
+                                probing = fx.Boolean(False)
+                        fx.ptr_store(encoded, claim_ptr)
+                    fx.barrier()
+                    published = fx.ptr_load(claim_ptr)
+                    fx.barrier()
+                    published = fx.Int32(rocdl.readfirstlane(T.i32, fx.Int32(published).ir_value()))
+                    consumer_active = published >= fx.Int32(0)
+                    if consumer_active:
+                        queue = published & fx.Int32(7)
+                        ticket = published >> fx.Int32(3)
+                        shared_active = ticket >= queue_size
+                        ticket = shared_active.select(ticket - queue_size, ticket)
+                        current_queue_size = shared_active.select(fx.Int32(shared_queue_size), queue_size)
+                        current_m_blocks = shared_active.select(fx.Int32((max_tok + BM - 1) // BM), total_m_blocks)
+                        if ticket < current_queue_size:
+                            band = ticket // (fx.Int32(band_m) * n_local)
+                            rem = ticket % (fx.Int32(band_m) * n_local)
+                            m_block = band * fx.Int32(band_m) + rem % fx.Int32(band_m)
+                            n_block = (rem // fx.Int32(band_m)) * fx.Int32(8) + queue
+                            if m_block < current_m_blocks:
+                                unit_bx = m_block * num_n_blocks + n_block
+                                if const_expr(schedule_audit):
+                                    if (tx_i32 == fx.Int32(0)) & (not shared_active):
+                                        audit_addr = arg_audit + fx.Int64(unit_bx) * fx.Int64(12)
+                                        comm_ops.atomic_add_agent(audit_addr, fx.Int32(1))
+                                        fx.ptr_store(physical_xcd + fx.Int32(1), global_typed_ptr(audit_addr + fx.Int64(4), T.i32))
+                                        fx.ptr_store((home == queue).select(fx.Int32(1), fx.Int32(0)), global_typed_ptr(audit_addr + fx.Int64(8), T.i32))
+                                if const_expr(shared_l2):
+                                    if const_expr(skip_empty):
+                                        # Keep every claim and queue visit, including shared epochs.
+                                        # An empty routed tile has no valid scatter destinations.
+                                        has_rows = shared_active | (routed_a_tile_bytes(m_block * fx.Int32(BM)) > fx.Int64(0))
+                                        if has_rows:
+                                            run_unit(unit_bx, m_block, shared_active)
+                                    else:
+                                        run_unit(unit_bx, m_block, shared_active)
+                                else:
+                                    issue_all_a_loads(m_block * fx.Int32(BM))
+                                    rocdl.sched_barrier(0)
+                                    run_unit(unit_bx, m_block)
+            else:
+                while attempt < fx.Int32((9 if local_reduce_xcd_local else 16) if shared_early2 else (1 if local_reduce_xcd_local and not shared_l2 else 8)):
+                    if const_expr(shared_early2):
+                        if const_expr(local_reduce_xcd_local):
+                            phase_end = shared_first.select(fx.Int32(8), fx.Int32(1))
+                            shared_active = (attempt < phase_end) == shared_first
+                            shared_attempt = shared_first.select(attempt, attempt - fx.Int32(1))
+                            queue = shared_active.select((home + shared_attempt) % fx.Int32(8), home)
                         else:
-                            queue = (home + attempt) % fx.Int32(8)
-                else:
-                    queue = (home + attempt) % fx.Int32(8)
-                fx.barrier()
-                if tx_i32 == fx.Int32(0):
-                    claim = fx.Int32(0)
-                    if const_expr(shared_joint):
-                        # [routed padded tickets | shared padded tickets]. Reuse
-                        # the per-forward-reset i32 head. The legacy shared i64
-                        # epoch stays untouched, including across mixed graphs.
-                        claim = fx.Int32(comm_ops.atomic_add_agent(
-                            arg_work_head + fx.Int64(queue) * fx.Int64(256), fx.Int32(1)))
-                    elif const_expr(shared_l2):
-                        if shared_active:
-                            claim = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
-                                shared_heads + fx.Int64(queue) * fx.Int64(64), fx.Int64(1))) % shared_period)
+                            shared_active = (attempt < fx.Int32(8)) == shared_first
+                            if const_expr(xcd_schedule and shared_xcd_home != xcd_home):
+                                queue = (shared_active.select(shared_home, home) + attempt) % fx.Int32(8)
+                            else:
+                                queue = (home + attempt) % fx.Int32(8)
+                    else:
+                        queue = (home + attempt) % fx.Int32(8)
+                    fx.barrier()
+                    if tx_i32 == fx.Int32(0):
+                        claim = fx.Int32(0)
+                        if const_expr(shared_joint):
+                            # [routed padded tickets | shared padded tickets]. Reuse
+                            # the per-forward-reset i32 head. The legacy shared i64
+                            # epoch stays untouched, including across mixed graphs.
+                            claim = fx.Int32(comm_ops.atomic_add_agent(
+                                arg_work_head + fx.Int64(queue) * fx.Int64(256), fx.Int32(1)))
+                        elif const_expr(shared_l2):
+                            if shared_active:
+                                claim = fx.Int32(fx.Int64(comm_ops.atomic_add_agent(
+                                    shared_heads + fx.Int64(queue) * fx.Int64(64), fx.Int64(1))) % shared_period)
+                            else:
+                                claim = fx.Int32(comm_ops.atomic_add_agent(
+                                    arg_work_head + fx.Int64(queue) * fx.Int64(256), fx.Int32(1)))
                         else:
                             claim = fx.Int32(comm_ops.atomic_add_agent(
                                 arg_work_head + fx.Int64(queue) * fx.Int64(256), fx.Int32(1)))
-                    else:
-                        claim = fx.Int32(comm_ops.atomic_add_agent(
-                            arg_work_head + fx.Int64(queue) * fx.Int64(256), fx.Int32(1)))
-                    fx.ptr_store(claim, claim_ptr)
-                fx.barrier()
-                ticket = fx.ptr_load(claim_ptr)
-                fx.barrier()
-                current_queue_size = queue_size
-                current_m_blocks = total_m_blocks
-                if const_expr(shared_l2):
-                    ticket = fx.Int32(rocdl.readfirstlane(T.i32, fx.Int32(ticket).ir_value()))
-                    if const_expr(shared_joint):
-                        # Ticket order is a claim priority, not a completion
-                        # barrier: shared can overlap already-claimed routed work.
-                        shared_active = ticket >= queue_size
-                        ticket = shared_active.select(ticket - queue_size, ticket)
-                    current_queue_size = shared_active.select(fx.Int32(shared_queue_size), queue_size)
-                    current_m_blocks = shared_active.select(fx.Int32(((max_tok + BM - 1) // BM)), total_m_blocks)
-                if ticket < current_queue_size:
-                    band = ticket // (fx.Int32(band_m) * n_local)
-                    rem = ticket % (fx.Int32(band_m) * n_local)
-                    m_block = band * fx.Int32(band_m) + rem % fx.Int32(band_m)
-                    n_block = (rem // fx.Int32(band_m)) * fx.Int32(8) + queue
-                    if m_block < current_m_blocks:
-                        unit_bx = m_block * num_n_blocks + n_block
-                        if const_expr(schedule_audit):
-                            if (tx_i32 == fx.Int32(0)) & (not shared_active):
-                                audit_addr = arg_audit + fx.Int64(unit_bx) * fx.Int64(12)
-                                comm_ops.atomic_add_agent(audit_addr, fx.Int32(1))
-                                fx.ptr_store(physical_xcd + fx.Int32(1), global_typed_ptr(audit_addr + fx.Int64(4), T.i32))
-                                fx.ptr_store((home == queue).select(fx.Int32(1), fx.Int32(0)), global_typed_ptr(audit_addr + fx.Int64(8), T.i32))
-                        if const_expr(shared_l2):
-                            if const_expr(skip_empty):
-                                # Keep every claim and queue visit, including shared epochs.
-                                # An empty routed tile has no valid scatter destinations.
-                                has_rows = shared_active | (routed_a_tile_bytes(m_block * fx.Int32(BM)) > fx.Int64(0))
-                                if has_rows:
+                        fx.ptr_store(claim, claim_ptr)
+                    fx.barrier()
+                    ticket = fx.ptr_load(claim_ptr)
+                    fx.barrier()
+                    current_queue_size = queue_size
+                    current_m_blocks = total_m_blocks
+                    if const_expr(shared_l2):
+                        ticket = fx.Int32(rocdl.readfirstlane(T.i32, fx.Int32(ticket).ir_value()))
+                        if const_expr(shared_joint):
+                            # Ticket order is a claim priority, not a completion
+                            # barrier: shared can overlap already-claimed routed work.
+                            shared_active = ticket >= queue_size
+                            ticket = shared_active.select(ticket - queue_size, ticket)
+                        current_queue_size = shared_active.select(fx.Int32(shared_queue_size), queue_size)
+                        current_m_blocks = shared_active.select(fx.Int32(((max_tok + BM - 1) // BM)), total_m_blocks)
+                    if ticket < current_queue_size:
+                        band = ticket // (fx.Int32(band_m) * n_local)
+                        rem = ticket % (fx.Int32(band_m) * n_local)
+                        m_block = band * fx.Int32(band_m) + rem % fx.Int32(band_m)
+                        n_block = (rem // fx.Int32(band_m)) * fx.Int32(8) + queue
+                        if m_block < current_m_blocks:
+                            unit_bx = m_block * num_n_blocks + n_block
+                            if const_expr(schedule_audit):
+                                if (tx_i32 == fx.Int32(0)) & (not shared_active):
+                                    audit_addr = arg_audit + fx.Int64(unit_bx) * fx.Int64(12)
+                                    comm_ops.atomic_add_agent(audit_addr, fx.Int32(1))
+                                    fx.ptr_store(physical_xcd + fx.Int32(1), global_typed_ptr(audit_addr + fx.Int64(4), T.i32))
+                                    fx.ptr_store((home == queue).select(fx.Int32(1), fx.Int32(0)), global_typed_ptr(audit_addr + fx.Int64(8), T.i32))
+                            if const_expr(shared_l2):
+                                if const_expr(skip_empty):
+                                    # Keep every claim and queue visit, including shared epochs.
+                                    # An empty routed tile has no valid scatter destinations.
+                                    has_rows = shared_active | (routed_a_tile_bytes(m_block * fx.Int32(BM)) > fx.Int64(0))
+                                    if has_rows:
+                                        run_unit(unit_bx, m_block, shared_active)
+                                else:
                                     run_unit(unit_bx, m_block, shared_active)
                             else:
-                                run_unit(unit_bx, m_block, shared_active)
-                        else:
-                            issue_all_a_loads(m_block * fx.Int32(BM))
-                            rocdl.sched_barrier(0)
-                            run_unit(unit_bx, m_block)
-                else:
-                    next_attempt = attempt + fx.Int32(1)
-                    if const_expr(shared_joint):
-                        # One failed claim per CTA/combined queue, with no reset.
-                        attempt = next_attempt
-                    elif const_expr(shared_l2 and not shared_early2):
-                        switch = (not shared_active) & (next_attempt == fx.Int32(1 if local_reduce_xcd_local else 8))
-                        attempt = switch.select(fx.Int32(0), next_attempt)
-                        shared_active = shared_active | switch
+                                issue_all_a_loads(m_block * fx.Int32(BM))
+                                rocdl.sched_barrier(0)
+                                run_unit(unit_bx, m_block)
                     else:
-                        attempt = next_attempt
+                        next_attempt = attempt + fx.Int32(1)
+                        if const_expr(shared_joint):
+                            # One failed claim per CTA/combined queue, with no reset.
+                            attempt = next_attempt
+                        elif const_expr(shared_l2 and not shared_early2):
+                            switch = (not shared_active) & (next_attempt == fx.Int32(1 if local_reduce_xcd_local else 8))
+                            attempt = switch.select(fx.Int32(0), next_attempt)
+                            shared_active = shared_active | switch
+                        else:
+                            attempt = next_attempt
         elif const_expr(not persist and g2_spart <= 0):
             bound = total_m_blocks * fx.Int32(num_n_blocks)
             if fx.Int32(bx_i32) < bound:
