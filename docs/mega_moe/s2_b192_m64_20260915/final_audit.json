@@ -1,0 +1,45 @@
+{
+  "passed": true,
+  "cleaned_candidate_all_8_isa_equal_measured": true,
+  "cleanup": "Remove unreachable M16 branch and restore original allowed BM set16/32/64; preserve measured code-object name.",
+  "selector": {
+    "passed": true,
+    "cases": 5306,
+    "promoted_exact_defaults": 1,
+    "only_config_differences": [
+      "b192 stage2.block_m=64",
+      "b192 stage2.queue_grid_mult=2"
+    ],
+    "unmeasured_shapes_partial_batches_and_explicit_environment_unchanged": true
+  },
+  "resource_gate": {
+    "passed": true,
+    "baseline": {
+      "vgpr_count": 231,
+      "sgpr_count": 106,
+      "vgpr_spill_count": 0,
+      "sgpr_spill_count": 14,
+      "private_segment_fixed_size": 0,
+      "group_segment_fixed_size": 33088
+    },
+    "candidate": {
+      "vgpr_count": 201,
+      "sgpr_count": 106,
+      "vgpr_spill_count": 0,
+      "sgpr_spill_count": 0,
+      "private_segment_fixed_size": 0,
+      "group_segment_fixed_size": 66112
+    },
+    "policy": "Authorized big CTA: VGPR<=256, SGPR and SGPR spills not above baseline, zero VGPR spills/private; GPU HIP must support8waves/CU"
+  },
+  "offscope_b136_isa_equal": true,
+  "unit_tests_per_repo": 12,
+  "unit_test_command": "python3 op_tests/test_mega_moe_m3_config.py",
+  "test_invocation_note": "Initial unittest discovery also imported unrelated triton_tests and failed for unavailable Triton; direct intended CPU test file passed12/12 in both repos.",
+  "native_gpu_scope": "Full default candidate selector/runner exercised by paired harness; final cleanup is ISA-identical. No separate unpatched production-process GPU rerun.",
+  "sources": {
+    "gemm2.py": "f5cbb6314c6ecde79b448a72126cafc2f73653832fe1b41747214a4e716f74d9",
+    "mega_moe_stage2.py": "aa7742e8251e8b39cb7aa5e97114da80d992c29943a6a9a53f276c70d86c0ce1",
+    "mega_moe_m3.py": "1cf12b1c48032657d0ce6937a9f4f3de9354224d961a8d567047c64808b39023"
+  }
+}

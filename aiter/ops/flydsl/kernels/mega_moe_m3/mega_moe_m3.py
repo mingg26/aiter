@@ -550,6 +550,11 @@ class MegaMoEM3:
             # measured multiplier five when converting to XCD queues.
             config = replace(config, stage2=replace(
                 config.stage2, band_m=8, xcd_schedule=True, queue_grid_mult=5))
+        if (self._sbm64_scope and tokens == self.mtpr == 192
+                and config.stage1.sbm64_path == "m32_m48_m64"
+                and config.stage2.shared_schedule == "jointtail"):
+            config = replace(config, stage2=replace(config.stage2,
+                block_m=64, block_n=256, block_k=256, queue_grid_mult=2))
         self._active_config = config
         return config
 
