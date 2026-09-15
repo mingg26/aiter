@@ -1,0 +1,1 @@
+These are snapshots of the authorized workspace-root documents under `/mnt/shared/homes/ming/msa`. Relative links in historical sections are relative to that original workspace root. The standalone current rollout report is one directory above. Frozen measurements linked from those historical documents were not edited.

@@ -1,0 +1,799 @@
+{
+  "passed": true,
+  "completed_batches": [
+    64,
+    104,
+    112,
+    120
+  ],
+  "expected_batches": [
+    64,
+    104,
+    112,
+    120,
+    128,
+    136,
+    144,
+    152,
+    160,
+    168,
+    176,
+    184,
+    192
+  ],
+  "isa_objects_checked": 96,
+  "no_performance_claim": true,
+  "records": [
+    {
+      "batch": 64,
+      "passed": true,
+      "result": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/native_v2/gpu/b64/result.json",
+      "result_sha256": "81a4f6aea9745d4f5da1b96cc5584f152285738f53c47f9f504949b16b48676b",
+      "probes": 16,
+      "graph_replays": 512,
+      "isa_objects": 24,
+      "config": {
+        "stage1": {
+          "sort_block_m": 64,
+          "tile_n": 256,
+          "num_waves": 8,
+          "grid_mult": 1,
+          "num_dispatch_cu": 48,
+          "mfma_amajor": true,
+          "async_a_copy": true,
+          "use_tile_resource": false,
+          "b_nt": 2,
+          "waves_per_eu_hint": 2,
+          "tile_k": 256,
+          "pipe_weights": true,
+          "swizzle_a": true,
+          "work_shards": 8,
+          "external_grouping": false,
+          "external_counting": false,
+          "skip_launch_barrier": false,
+          "padding_uniform_srcmap": true,
+          "count_uniform_matrix": true,
+          "row_base_prefetch": true,
+          "prefetch_b_before_a": true,
+          "joint_work_flags": false,
+          "preplan_waves": 4,
+          "payload_chunk_rows": 0,
+          "payload_tile_ready": false,
+          "payload_tile_publish_early": false,
+          "packed_a_scale": false,
+          "unroll_a_pingpong": false,
+          "split_a_lds": false,
+          "fp8_b_waitcnt": false,
+          "scalar_tile_row_base": false,
+          "prefetch_a_operand": false,
+          "xcd_schedule": true,
+          "schedule_audit": false,
+          "band_m": 4,
+          "xcd_home": true,
+          "shared_xcd_home": true,
+          "shared_packed_heads": true,
+          "sbm128_path": "generic",
+          "sbm64_path": "m32_m48_m64"
+        },
+        "stage2": {
+          "block_m": 64,
+          "block_n": 128,
+          "persist": true,
+          "persist_cu": 128,
+          "use_nt": true,
+          "persist_strided": false,
+          "skew_cu": 0,
+          "block_k": 256,
+          "b_hoist": true,
+          "ascale_prefetch": true,
+          "spatial_partition": 402,
+          "bf16_lds": false,
+          "queue_grid_mult": 5,
+          "xcd_schedule": true,
+          "band_m": 8,
+          "schedule_audit": false,
+          "shared_schedule": "jointtail",
+          "xcd_home": true,
+          "shared_xcd_home": true
+        },
+        "p2p_quant": "none"
+      },
+      "isa": [
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r0",
+            "sha256": "a90e9b583cecc0c7607c55f673ee56d9308391ee3257e7fe5987a0bcb7dde517"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1",
+            "sha256": "1d7273d5e2cd790eaf799aeb6f4494c4b1b5c5151e8f7bfe1b533f39a145774e"
+          },
+          {
+            "name": "megamoe_stage2_compact_t64x128x256_sbm64_a8w8_nt1_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "5afa55d6aecb58af0bfdc404a5d9a48bca1acf7d784ff2149fbeb77163342caf"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r1",
+            "sha256": "db9245ab8e488b5eae044613d1b500309f3440bc6dc3c9ba8b25d11304ac903d"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1",
+            "sha256": "cb831025d039d65ec936788a2814290e409b351532b80582082384d67870710f"
+          },
+          {
+            "name": "megamoe_stage2_compact_t64x128x256_sbm64_a8w8_nt1_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "5e797cdab31434a5fe8d2cacfca052097dd5ed01456424e4ad0b883b60ae5653"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r2",
+            "sha256": "25b104ff5c94742c499cdb64debeab59b139c5206d3a2b36e342209ba9371c87"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1",
+            "sha256": "c76ad7e245c9cb9bd1b1fd42b37dfaefca76c929a73f736ed30ca8dde6c790d4"
+          },
+          {
+            "name": "megamoe_stage2_compact_t64x128x256_sbm64_a8w8_nt1_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "938c0e620e23a560657693c75a0582b418996398b07936e06f1e53558a666d6e"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r3",
+            "sha256": "a726d1d542a4dbb0b63c39ec3a05a74b026387c4a1817ef6238301d2f7aadfa0"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1",
+            "sha256": "1faf753283910d93a1cb1d34c88e95cfeb5585044712e136d92f95c68925dffc"
+          },
+          {
+            "name": "megamoe_stage2_compact_t64x128x256_sbm64_a8w8_nt1_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "06cf41b73e013eb3df6695b463eadd6711c26049fbe7009af917f6fe87e7dd98"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r4",
+            "sha256": "4b7d20be3782a71ee4bbcac2710d667818d305768e9a45e34dacd3edd99be309"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1",
+            "sha256": "187d3cff146f8e19ccb1c9c766bed7ef39baee28afaf4452e8e06fdcdd87a127"
+          },
+          {
+            "name": "megamoe_stage2_compact_t64x128x256_sbm64_a8w8_nt1_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "677686badbdafef79b51901d1a16116955172d26345ea75479072517c7b50878"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r5",
+            "sha256": "f8549f2f85c9dae1d806ff339eef2d00d39712f51f7705e4a9f91b7fa381f4c1"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1",
+            "sha256": "f754615c5f3dee3e8dbc87a5cd4a3e3ee8fd51609efdc9155f3c0bafe0e4ff30"
+          },
+          {
+            "name": "megamoe_stage2_compact_t64x128x256_sbm64_a8w8_nt1_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "c1824a3d32bc0f7c0734c0f9b3be18f776eb22e29ec85c2d090c04c63b7b7e69"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r6",
+            "sha256": "a7cd643e6fa055dd8d0aac5935ed238543f17567c2452f656c219891ea3393cc"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1",
+            "sha256": "0f784b6858880cfa873d7fa8820062392838012ad983719539a5e83a34fc744b"
+          },
+          {
+            "name": "megamoe_stage2_compact_t64x128x256_sbm64_a8w8_nt1_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "b7d1cb2ad0b75ac1862b22cf535c867768a00d7d39b1bea3316da995dffa8737"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r7",
+            "sha256": "8f29f3989b5f42baffda47578b8694e2f3d543b9a39ad479beec323f3039d318"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1",
+            "sha256": "df1e24486ee1b93e09c1cd74eb896213f779eb7d33325c9ae3d0beebb990a2e6"
+          },
+          {
+            "name": "megamoe_stage2_compact_t64x128x256_sbm64_a8w8_nt1_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "4d04f69c31c6b701a289411dc0355d961e03f5ff4a41ff2bb1095e1a6d612284"
+          }
+        ]
+      ]
+    },
+    {
+      "batch": 104,
+      "passed": true,
+      "result": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/native_v2/gpu/b104/result.json",
+      "result_sha256": "baabc1f0e4d4cea446c47d95b03477653325d66209ac69f24618fc78ec87801a",
+      "probes": 16,
+      "graph_replays": 512,
+      "isa_objects": 24,
+      "config": {
+        "stage1": {
+          "sort_block_m": 64,
+          "tile_n": 256,
+          "num_waves": 8,
+          "grid_mult": 1,
+          "num_dispatch_cu": 48,
+          "mfma_amajor": true,
+          "async_a_copy": true,
+          "use_tile_resource": false,
+          "b_nt": 2,
+          "waves_per_eu_hint": 2,
+          "tile_k": 256,
+          "pipe_weights": true,
+          "swizzle_a": true,
+          "work_shards": 8,
+          "external_grouping": false,
+          "external_counting": false,
+          "skip_launch_barrier": false,
+          "padding_uniform_srcmap": true,
+          "count_uniform_matrix": true,
+          "row_base_prefetch": true,
+          "prefetch_b_before_a": true,
+          "joint_work_flags": false,
+          "preplan_waves": 4,
+          "payload_chunk_rows": 0,
+          "payload_tile_ready": false,
+          "payload_tile_publish_early": false,
+          "packed_a_scale": false,
+          "unroll_a_pingpong": false,
+          "split_a_lds": false,
+          "fp8_b_waitcnt": false,
+          "scalar_tile_row_base": false,
+          "prefetch_a_operand": false,
+          "xcd_schedule": true,
+          "schedule_audit": false,
+          "band_m": 4,
+          "xcd_home": true,
+          "shared_xcd_home": true,
+          "shared_packed_heads": true,
+          "sbm128_path": "generic",
+          "sbm64_path": "m32_m48_m64"
+        },
+        "stage2": {
+          "block_m": 32,
+          "block_n": 256,
+          "persist": true,
+          "persist_cu": 128,
+          "use_nt": false,
+          "persist_strided": false,
+          "skew_cu": 0,
+          "block_k": 256,
+          "b_hoist": true,
+          "ascale_prefetch": true,
+          "spatial_partition": 402,
+          "bf16_lds": false,
+          "queue_grid_mult": 5,
+          "xcd_schedule": true,
+          "band_m": 8,
+          "schedule_audit": false,
+          "shared_schedule": "jointtail",
+          "xcd_home": true,
+          "shared_xcd_home": true
+        },
+        "p2p_quant": "none"
+      },
+      "isa": [
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r0",
+            "sha256": "c5283e1e083c5f8e913579e77634de4032a884ba970ce97b55f6844fa3189ccd"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "4266dc22953d500cdf8c7c888a87f10cd9c4ad499a2dfcf7ff2f59683e7c2a93"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "db4cab33554c8231b29b58e5d15f8aaa07bb03b5ae1e3aac1e029d0e5bdb5974"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r1",
+            "sha256": "f285a5f75ef7f24bd4ef47970cea04dbdb3f575204b982cbf973da4777ea3a0e"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "f392cf3b11b909e44d3e33f88d2b9df9260bf314497071b1d2ff01eb74b88cb4"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "db679fddc98739c60e0780ab2d3b39345af7ffffdf41ea008572f5eeee61922f"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r2",
+            "sha256": "537632fee7059517e16d4e1ab1cc70554b4eaf20a63f412f272567467ac0f568"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "926aec62ab13c613428dcd3363f589ed01737932a49ecf10511e13ce8f15508a"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "d1331b5dd61d686f84bec94f4f941525deff7b763dfbdcbd85770be7bc444cb2"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r3",
+            "sha256": "85d5db08b2f6166bbea11dcf44f811e23e764c9c7d72e83c7e7d639fecbbd6c8"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "c1ccb3347954dffe3d115a5fe4a80f3e2a93c287a063bdc4d56fdff6adfa7dba"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "2f0e6b050e5ee574e021d80c216285db33e015bcaf36fd0e7d9c757298fa543a"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r4",
+            "sha256": "9ce1c941d4cc505b74d5bcd345c973b19b15f019b6399de5061e3616c5de3c44"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "1d50fb1e392a32a8392555971165cc372e197a67570d3df114556557cbda1a24"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "0849c87cd06d52ffe6d0e934a239ddbd129e2bd6ad4964d574d2ad02e8d38fd1"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r5",
+            "sha256": "58c38d1f8114908dacf072f95cee564e1ef3264a7b895a62cad523ee5e5adcfe"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "f45975bc3365a22bebb320672e0e014ffb84f81b05c3daf9882d06b15beb8173"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "6e9f894939f5c828a8f38e6f5790f9f949e887af712d37e1e049186725c2e694"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r6",
+            "sha256": "880bf2303e57d32460bc17e05956b2cff6cf1fc51058150fe8ba71d06bb06700"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "f608d541e1ecef79a0f36c2487760aedd44d8e6a7b4d8325b6ae342fd62f0258"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "c20c4ca68945fb42092cae0e7e922cdd70c4efd0e3ede11285f28fda6714ba2b"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r7",
+            "sha256": "bcf0e9562f25e83616ff62cc3dadab2ec0827a126f0b0835b2f6bf5b1be60e4f"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "5306d9cf88ad707db23cd47e269b59b8855f130fedf07833332c835c172bd216"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "e85c1149134405b289c8855dbdf00fad8dc0b7ba610f3a14c9168cf1f921ac04"
+          }
+        ]
+      ]
+    },
+    {
+      "batch": 112,
+      "passed": true,
+      "result": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/native_v2/gpu/b112/result.json",
+      "result_sha256": "73f92ecc231936e986f91ec186e0e37bdc8af57c1eb7155f700d8b293a7a1b25",
+      "probes": 16,
+      "graph_replays": 512,
+      "isa_objects": 24,
+      "config": {
+        "stage1": {
+          "sort_block_m": 64,
+          "tile_n": 256,
+          "num_waves": 8,
+          "grid_mult": 1,
+          "num_dispatch_cu": 48,
+          "mfma_amajor": true,
+          "async_a_copy": true,
+          "use_tile_resource": false,
+          "b_nt": 2,
+          "waves_per_eu_hint": 2,
+          "tile_k": 256,
+          "pipe_weights": true,
+          "swizzle_a": true,
+          "work_shards": 8,
+          "external_grouping": false,
+          "external_counting": false,
+          "skip_launch_barrier": false,
+          "padding_uniform_srcmap": true,
+          "count_uniform_matrix": true,
+          "row_base_prefetch": true,
+          "prefetch_b_before_a": true,
+          "joint_work_flags": false,
+          "preplan_waves": 4,
+          "payload_chunk_rows": 0,
+          "payload_tile_ready": false,
+          "payload_tile_publish_early": false,
+          "packed_a_scale": false,
+          "unroll_a_pingpong": false,
+          "split_a_lds": false,
+          "fp8_b_waitcnt": false,
+          "scalar_tile_row_base": false,
+          "prefetch_a_operand": false,
+          "xcd_schedule": true,
+          "schedule_audit": false,
+          "band_m": 4,
+          "xcd_home": true,
+          "shared_xcd_home": true,
+          "shared_packed_heads": true,
+          "sbm128_path": "generic",
+          "sbm64_path": "m32_m48_m64"
+        },
+        "stage2": {
+          "block_m": 32,
+          "block_n": 256,
+          "persist": true,
+          "persist_cu": 128,
+          "use_nt": false,
+          "persist_strided": false,
+          "skew_cu": 0,
+          "block_k": 256,
+          "b_hoist": true,
+          "ascale_prefetch": true,
+          "spatial_partition": 402,
+          "bf16_lds": false,
+          "queue_grid_mult": 5,
+          "xcd_schedule": true,
+          "band_m": 8,
+          "schedule_audit": false,
+          "shared_schedule": "jointtail",
+          "xcd_home": true,
+          "shared_xcd_home": true
+        },
+        "p2p_quant": "none"
+      },
+      "isa": [
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r0",
+            "sha256": "39e028736845cc5311c6507ada777c87f5d39602096c900c170578031a508a62"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "4266dc22953d500cdf8c7c888a87f10cd9c4ad499a2dfcf7ff2f59683e7c2a93"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "48f522181b7ebaf5c510e116107b6b77160ff1009023999b64460c1902987045"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r1",
+            "sha256": "be50fb45f610e1ef743fbdf3fccb9443e76248a1f74289373647fb32d40c03c8"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "c79a6f7239397d582ac8bd03cb8008ed287111503f33395e4aed665eebf79c0c"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "c1832cdd3de96f382dcb577460e7353488629f7a4a6baa540175bf8d5e2667fa"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r2",
+            "sha256": "01ff00dffd37d9f1bedcfcf82d3af982211f1682633d1662e94884075cad6b6f"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "b4c4a35c2142f95c7c1bd3a1a752e901e4a3cd1e348ff9c6c49269eb314f7a92"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "fdd1430a4d46217454cdce485ab1403a8e72b173368c3fd42c4265465d0f9aac"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r3",
+            "sha256": "40ffbb2077709aee641d1acf3556b6e96f3e265e0feab77785c2ad9d3dc762d8"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "2b1c784f6a58df1f7f1d6ba3840e3d42b5fa726535463847d1e42f1c0560b0fd"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "05550af247636ffc28af2822fcaa20288a4aac70062e65c3dd9fffcef6aecfc9"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r4",
+            "sha256": "0523cc9fd8f339e45d8b6ec8cf176877b602fecf823fd3cd340c2f80a59cabce"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "7d2d78ff70ca41b548f4318b074069dde0159192d3c3602306fa8a12eed41446"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "c8c4c0effa48f642101728adb401ad1f39e3a04af9f29bceeaa3f78c9953e6e0"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r5",
+            "sha256": "062c94042effa8b21299e3cb7ca7af4fe21801f02cbd297b0149f08954a67f67"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "564a5a72a5bab1488617d8ad814e5fec1eae64eabd0dcf0b5ab1f9fc12d9a5ec"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "510063444c0807810e864b711cbb0ea23ddd91be60d2db56055f48600e071dc3"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r6",
+            "sha256": "cb78089dd2814e0c6436dc1fb4b0f809cc3d7a92334497556e97eb6cfd172875"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "fa039ad7cbb0ffc80ac44235efacb6e82659be5e990f85c26d1a26a66b4089fb"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "1cd1d21c53ab1b6d1df883fc90814e7313d8815310f3cf0beef27bc3062fb196"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r7",
+            "sha256": "ada4a561201bc79f19a4daedb97da8e61e98eb3b62a44ace7eb7173a5a122bee"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "f75bac1cea212e7938aee84c3197594b9452883443e48bc07aa379352904b260"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "f4c07f1513e41370ad4edb386823bf7938fd55dd9b0623d5f1d332254f59d8de"
+          }
+        ]
+      ]
+    },
+    {
+      "batch": 120,
+      "passed": true,
+      "result": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/native_v2/gpu/b120/result.json",
+      "result_sha256": "a504f87cf41f9a0734aaa00c8d7976ba5a19ee14e845ba8bd07d58dcacdfba13",
+      "probes": 16,
+      "graph_replays": 512,
+      "isa_objects": 24,
+      "config": {
+        "stage1": {
+          "sort_block_m": 64,
+          "tile_n": 256,
+          "num_waves": 8,
+          "grid_mult": 1,
+          "num_dispatch_cu": 48,
+          "mfma_amajor": true,
+          "async_a_copy": true,
+          "use_tile_resource": false,
+          "b_nt": 2,
+          "waves_per_eu_hint": 2,
+          "tile_k": 256,
+          "pipe_weights": true,
+          "swizzle_a": true,
+          "work_shards": 8,
+          "external_grouping": false,
+          "external_counting": false,
+          "skip_launch_barrier": false,
+          "padding_uniform_srcmap": true,
+          "count_uniform_matrix": true,
+          "row_base_prefetch": true,
+          "prefetch_b_before_a": true,
+          "joint_work_flags": false,
+          "preplan_waves": 4,
+          "payload_chunk_rows": 0,
+          "payload_tile_ready": false,
+          "payload_tile_publish_early": false,
+          "packed_a_scale": false,
+          "unroll_a_pingpong": false,
+          "split_a_lds": false,
+          "fp8_b_waitcnt": false,
+          "scalar_tile_row_base": false,
+          "prefetch_a_operand": false,
+          "xcd_schedule": true,
+          "schedule_audit": false,
+          "band_m": 4,
+          "xcd_home": true,
+          "shared_xcd_home": true,
+          "shared_packed_heads": true,
+          "sbm128_path": "generic",
+          "sbm64_path": "m32_m48_m64"
+        },
+        "stage2": {
+          "block_m": 32,
+          "block_n": 256,
+          "persist": true,
+          "persist_cu": 128,
+          "use_nt": false,
+          "persist_strided": false,
+          "skew_cu": 0,
+          "block_k": 256,
+          "b_hoist": true,
+          "ascale_prefetch": true,
+          "spatial_partition": 402,
+          "bf16_lds": false,
+          "queue_grid_mult": 5,
+          "xcd_schedule": true,
+          "band_m": 8,
+          "schedule_audit": false,
+          "shared_schedule": "jointtail",
+          "xcd_home": true,
+          "shared_xcd_home": true
+        },
+        "p2p_quant": "none"
+      },
+      "isa": [
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r0",
+            "sha256": "1d66288022d54671a66ffd5e3fbfa874fc67a491404897190dae7e3fbd5a11f9"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "4266dc22953d500cdf8c7c888a87f10cd9c4ad499a2dfcf7ff2f59683e7c2a93"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "0cf9c25034b6a14d32cb61b6863faf958e6e75fb03c221187fd95a031d539c21"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r1",
+            "sha256": "64425a398893bf21e24b124770bd78dd02fb09a767cc10996da3d2c01f573306"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "13292b57444f06ffd990f2c24004c41245a4717c3cd76db21725dbb4948a46c4"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "94dec532d5f0c2e450f04590e2cd4fdb677765f5ea926226ae452deacff6a935"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r2",
+            "sha256": "2c805a8631c1b27107daa8f67f4ea0055e2c78532f71cb2835f59a7148a6222b"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "4faeeb855589e46a0255c1a1f53da890e47649839ddb36c2398c5196d32763fa"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "32b7186913f4cb0d5e63c6b2e8b52e064727bf0d218671d1e73334659b23c41a"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r3",
+            "sha256": "308089b5b283a94f78b5883e3824a1a6ccf30baebcce612c027ede7454f9b563"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "88d31e5eef5f137960b6031a6cbea55cae4d0350834893be2d9c48adf1c3f3ea"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "76e9b9eb256ff73c1cda7c3d27c8ee9f13e2e2bc8350322a5611d2fbcc945d6b"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r4",
+            "sha256": "4e391498b42c05215d8f608ecbf9c5e0dcc047e21ae31dc3c4cab350ea1903ca"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "5128c8eb3ad461797d39e271d1178596e231e6df6831751a313c4051c3f84b4d"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "159c028d80efeb4624046df9a33464692d9f22a37c82f821b03f0e87fd832def"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r5",
+            "sha256": "b5567361fefe874deb5e82aa3edaf3cb54a4b3a7aaf7cce3340a768a6cda63fe"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "ffbb535e93a4c74673ce7845892fec1591a68078b51a9b93e36bdbcfd1dfb2dd"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "87969bd9271a8bd62a52f61b149d614ace7285a7d5cca79d17d7192d616002d9"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r6",
+            "sha256": "9f5aa97590708c83d756eaf9a6e61de419e258b86062625622b3757b7471c394"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "10d99cd87b298c4c2477b4899a3fe3b92903eb22f3954cf924ec1965bc1bb5f7"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "467536a964fa596ea69f2de624af1363fca975019bce5783970eae3ed495be99"
+          }
+        ],
+        [
+          {
+            "name": "per_1x32_mx_quant_fp8_n6144_plan_w4_r7",
+            "sha256": "b6ccbf0625440aaf7bdbeeff5364670d48294c175eed026e4d2fadf1dd6ca883"
+          },
+          {
+            "name": "megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1",
+            "sha256": "ec1dabfb8e10ad801394a660582b872ab3c52c54c6168e6fd5929977efa7952c"
+          },
+          {
+            "name": "megamoe_stage2_compact_t32x256x256_sbm64_a8w8_nt0_p1cu128s0_pad0_sk0_bh1apf1sp4x2_bf16lds0_none_a2b2_a2s1_ez1_qm8_xq1_qa0_qg5_sharedl2_jointtail_xcd1",
+            "sha256": "0b633bbec994a63773f5ff25c734487a3c027d96e86c4baa310177e4e428f906"
+          }
+        ]
+      ]
+    }
+  ],
+  "full_13_batch_gpu_sweep_completed": false,
+  "user_requested_stop_after_isa_match": true,
+  "remaining_gpu_batches_not_run": [
+    128,
+    136,
+    144,
+    152,
+    160,
+    168,
+    176,
+    184,
+    192
+  ],
+  "accepted_validation_scope": "User explicitly requested no full GPU rerun; all 104 CPU S1 ISA objects match historical GPU-tested candidates. Four native GPU batch validations passed; remaining defaults covered by selector audit and ISA identity.",
+  "startup_failure_b128": "TCPStore EADDRINUSE port53128 before worker/kernel execution; no result. Not retried per user stop instruction."
+}

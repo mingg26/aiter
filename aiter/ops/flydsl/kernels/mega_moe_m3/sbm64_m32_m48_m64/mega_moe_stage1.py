@@ -146,7 +146,7 @@ def compile_mega_moe_stage1(
         if int(fuse_mtpr) in SHARED_FUSED_MTPR_SMALL:
             assert shared_xcd and not payload_tile_ready and not use_tile_resource
             want = dict(SHARED_FUSED_S1_GEOMETRY["small"])
-            assert int(fuse_mtpr) == 136 and int(fuse_npes) == 8 and sort_block_m == 64
+            assert int(fuse_mtpr) in (64, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192) and int(fuse_npes) == 8 and sort_block_m == 64
             want["tile_n"] = 256
             got = dict(tile_n=tile_n, num_waves=num_waves, band_m=band_m)
             assert got == want, f"fused shared L13 small regime wants {want}, got {got}"
@@ -204,7 +204,7 @@ def compile_mega_moe_stage1(
         assert WORK_SHARDS == 8
         if small_xcd:
             assert (tile_n, N_TILES) == (256, 24)
-            assert int(fuse_mtpr) == 136 and int(fuse_npes) == 8 and sort_block_m == 64
+            assert int(fuse_mtpr) in (64, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192) and int(fuse_npes) == 8 and sort_block_m == 64
             assert sort_block_m in (32, 64)
             # Deliberately NOT the fused-shared token set: this is the unfused
             # small-XCD path, which EP4 also drives at 512 and 1024 with a 64-row

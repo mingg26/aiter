@@ -459,5 +459,26 @@
       "ast_equal_except_imports": true
     }
   },
-  "published_rank6_isa_sha256": "fa33724491e5483190474cd9e2be4a8625a02978007da47a35b3342282aaefde"
+  "published_rank6_isa_sha256": "fa33724491e5483190474cd9e2be4a8625a02978007da47a35b3342282aaefde",
+  "sbm64_20260915_rollout": {
+    "batches": [
+      64,
+      104,
+      112,
+      120,
+      128,
+      136,
+      144,
+      152,
+      160,
+      168,
+      176,
+      184,
+      192
+    ],
+    "report": "docs/mega_moe/sbm64_20260915/README.md",
+    "measurements": "docs/mega_moe/sbm64_20260915/measurements.json",
+    "b72": "rejected, original SBM32 retained",
+    "mid16_incremental": "retained by user; stable incremental benefit unresolved"
+  }
 }

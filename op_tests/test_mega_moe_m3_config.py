@@ -94,16 +94,15 @@ class SBM128DefaultsTest(unittest.TestCase):
 class SBM64DefaultsTest(unittest.TestCase):
     setUp = SBM128DefaultsTest.setUp
 
-    def test_corrected_baseline_defaults(self):
-        paths = {120: 'full', 136: 'full', 160: 'm16_dma', 168: 'm16_dma',
-                 176: 'm16_dma', 184: 'm16_dma', 192: 'm16'}
+    def test_retained_defaults(self):
+        paths = {t: "m32_m48_m64" for t in (64, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)}
         self.assertEqual(cfg.SBM64_PATHS, paths)
         for tokens in range(8, 257, 8):
             value = namespace['_select_config'](operator(tokens), tokens)
             self.assertEqual(value.stage1.sbm64_path, paths.get(tokens, 'generic'))
             if tokens in paths:
-                self.assertEqual((value.stage1.sort_block_m, value.stage1.tile_n), (64, 512))
-                self.assertEqual((value.stage2.block_m, value.stage2.block_n), (32, 256))
+                self.assertEqual((value.stage1.sort_block_m, value.stage1.tile_n), (64, 256))
+                self.assertEqual((value.stage2.block_m, value.stage2.block_n), (64, 128) if tokens == 64 else (32, 256))
                 self.assertEqual(value.stage1.sbm128_path, 'generic')
 
     def test_sbm64_scope_boundaries(self):
@@ -111,15 +110,38 @@ class SBM64DefaultsTest(unittest.TestCase):
             for changed in (dict(shared=False), dict(shared_l2=False), dict(xcd=False), dict(world=4),
                             dict(epr=32), dict(hidden=4096), dict(inter=4096), dict(topk=2), dict(lr=True)):
                 self.assertFalse(operator(tokens, **changed)._sbm64_scope)
-            self.assertEqual(namespace['_select_config'](operator(tokens), 64).stage1.sbm64_path, 'generic')
+            self.assertEqual(namespace['_select_config'](operator(tokens), 32).stage1.sbm64_path, 'generic')
             for name in cfg._STAGE1_OVERRIDE_ENV.values():
                 with patch.dict(os.environ, {name: '1'}):
                     self.assertFalse(operator(tokens)._sbm64_scope)
         value = namespace['_select_config'](operator(160), 160).stage1
-        for changes in (dict(tile_n=256), dict(sort_block_m=128), dict(sbm128_path='m16'), dict(sbm64_path='bad')):
+        for changes in (dict(tile_n=512), dict(sort_block_m=128), dict(sbm128_path='m16'), dict(sbm64_path='bad')):
             with self.assertRaises(ValueError):
                 replace(value, **changes)
 
+
+    def test_b72_stays_sbm32(self):
+        value = namespace['_select_config'](operator(72), 72)
+        self.assertFalse(operator(72)._sbm64_scope)
+        self.assertEqual((value.stage1.sort_block_m, value.stage1.tile_n, value.stage1.sbm64_path), (32, 512, 'generic'))
+
+    def test_s2_empty_skip_matches_measured_configuration(self):
+        source = ast.parse((KERNELS / 'mega_moe_m3/mega_moe_stage2.py').read_text())
+        expr = next(n.value for n in ast.walk(source) if isinstance(n, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id == 'skip_empty' for t in n.targets))
+        code = compile(ast.Expression(expr), '<actual S2 skip>', 'eval')
+        for tokens in cfg.SBM64_PATHS:
+            bm = 64 if tokens == 64 else 32
+            values = dict(shared_l2=True, local_reduce=False, BM=bm, SBM=64,
+                          max_tok=tokens, sbm128_rollout=False, sbm64_rollout=True)
+            self.assertEqual(eval(code, {}, values), tokens not in (64, 152))
+            for change in (dict(local_reduce=True), dict(shared_l2=False), dict(BM=64)):
+                self.assertFalse(eval(code, {}, dict(values, **change)))
+        # Existing unpromoted shapes retain their previous skip condition.
+        for tokens in range(8, 257, 8):
+            values = dict(shared_l2=True, local_reduce=False, BM=32, SBM=64,
+                          max_tok=tokens, sbm128_rollout=False, sbm64_rollout=False)
+            self.assertEqual(eval(code, {}, values), tokens in (104,112,128,160,168,176,184,192,200,256))
 
 if __name__ == '__main__':
     unittest.main()

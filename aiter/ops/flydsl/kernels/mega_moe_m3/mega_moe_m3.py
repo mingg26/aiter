@@ -406,7 +406,7 @@ class MegaMoEM3:
             s2_block_n = 128 if tokens in (64, 256) else 256
             config = MegaMoEConfig(
                 stage1=Stage1Config(
-                    sort_block_m=sort_block_m, tile_n=256 if sbm128_path != "generic" else 512,
+                    sort_block_m=sort_block_m, tile_n=256 if sbm128_path != "generic" or sbm64_path == "m32_m48_m64" else 512,
                     tile_k=256, num_waves=8, sbm128_path=sbm128_path, sbm64_path=sbm64_path,
                     grid_mult=1, num_dispatch_cu=32 if tokens == 256 else 48,
                     mfma_amajor=True,
@@ -584,7 +584,9 @@ class MegaMoEM3:
         if config.sbm64_path != "generic":
             if not self._sbm64_scope or cur_tok != self.mtpr:
                 raise ValueError("Specialized SBM64 requires the validated full EP8 shared batch")
-            if config.sbm64_path == "full":
+            if config.sbm64_path == "m32_m48_m64":
+                from .sbm64_m32_m48_m64.mega_moe_stage1 import run_mega_moe_stage1 as stage1_runner
+            elif config.sbm64_path == "full":
                 from .sbm64_full.mega_moe_stage1 import run_mega_moe_stage1 as stage1_runner
             elif config.sbm64_path == "m16_dma":
                 from .sbm64_m16_dma.mega_moe_stage1 import run_mega_moe_stage1 as stage1_runner
@@ -592,7 +594,7 @@ class MegaMoEM3:
                 from .sbm64_m16.mega_moe_stage1 import run_mega_moe_stage1 as stage1_runner
             else:
                 raise ValueError(f"Uninstalled SBM64 path {config.sbm64_path!r}")
-            if config.sbm64_path != "full":
+            if config.sbm64_path in ("m16_dma", "m16"):
                 specialized_kwargs["skip_empty_m16"] = True
         # fmt: off
         stage1_runner(

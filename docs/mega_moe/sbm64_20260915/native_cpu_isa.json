@@ -1,0 +1,837 @@
+{
+  "passed": true,
+  "objects": [
+    {
+      "batch": 64,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b64/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "1d7273d5e2cd790eaf799aeb6f4494c4b1b5c5151e8f7bfe1b533f39a145774e",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b64/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 64,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b64/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "cb831025d039d65ec936788a2814290e409b351532b80582082384d67870710f",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b64/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 64,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b64/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "c76ad7e245c9cb9bd1b1fd42b37dfaefca76c929a73f736ed30ca8dde6c790d4",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b64/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 64,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b64/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "1faf753283910d93a1cb1d34c88e95cfeb5585044712e136d92f95c68925dffc",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b64/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 64,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b64/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "187d3cff146f8e19ccb1c9c766bed7ef39baee28afaf4452e8e06fdcdd87a127",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b64/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 64,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b64/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "f754615c5f3dee3e8dbc87a5cd4a3e3ee8fd51609efdc9155f3c0bafe0e4ff30",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b64/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 64,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b64/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "0f784b6858880cfa873d7fa8820062392838012ad983719539a5e83a34fc744b",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b64/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 64,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b64/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "df1e24486ee1b93e09c1cd74eb896213f779eb7d33325c9ae3d0beebb990a2e6",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b64/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 104,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b104/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "4266dc22953d500cdf8c7c888a87f10cd9c4ad499a2dfcf7ff2f59683e7c2a93",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b104/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 104,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b104/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "f392cf3b11b909e44d3e33f88d2b9df9260bf314497071b1d2ff01eb74b88cb4",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b104/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 104,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b104/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "926aec62ab13c613428dcd3363f589ed01737932a49ecf10511e13ce8f15508a",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b104/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 104,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b104/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "c1ccb3347954dffe3d115a5fe4a80f3e2a93c287a063bdc4d56fdff6adfa7dba",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b104/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 104,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b104/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "1d50fb1e392a32a8392555971165cc372e197a67570d3df114556557cbda1a24",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b104/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 104,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b104/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "f45975bc3365a22bebb320672e0e014ffb84f81b05c3daf9882d06b15beb8173",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b104/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 104,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b104/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "f608d541e1ecef79a0f36c2487760aedd44d8e6a7b4d8325b6ae342fd62f0258",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b104/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 104,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b104/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "5306d9cf88ad707db23cd47e269b59b8855f130fedf07833332c835c172bd216",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b104/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 112,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b112/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "4266dc22953d500cdf8c7c888a87f10cd9c4ad499a2dfcf7ff2f59683e7c2a93",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b112/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 112,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b112/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "c79a6f7239397d582ac8bd03cb8008ed287111503f33395e4aed665eebf79c0c",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b112/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 112,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b112/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "b4c4a35c2142f95c7c1bd3a1a752e901e4a3cd1e348ff9c6c49269eb314f7a92",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b112/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 112,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b112/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "2b1c784f6a58df1f7f1d6ba3840e3d42b5fa726535463847d1e42f1c0560b0fd",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b112/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 112,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b112/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "7d2d78ff70ca41b548f4318b074069dde0159192d3c3602306fa8a12eed41446",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b112/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 112,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b112/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "564a5a72a5bab1488617d8ad814e5fec1eae64eabd0dcf0b5ab1f9fc12d9a5ec",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b112/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 112,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b112/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "fa039ad7cbb0ffc80ac44235efacb6e82659be5e990f85c26d1a26a66b4089fb",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b112/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 112,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b112/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "f75bac1cea212e7938aee84c3197594b9452883443e48bc07aa379352904b260",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b112/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 120,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b120/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "4266dc22953d500cdf8c7c888a87f10cd9c4ad499a2dfcf7ff2f59683e7c2a93",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b120/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 120,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b120/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "13292b57444f06ffd990f2c24004c41245a4717c3cd76db21725dbb4948a46c4",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b120/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 120,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b120/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "4faeeb855589e46a0255c1a1f53da890e47649839ddb36c2398c5196d32763fa",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b120/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 120,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b120/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "88d31e5eef5f137960b6031a6cbea55cae4d0350834893be2d9c48adf1c3f3ea",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b120/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 120,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b120/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "5128c8eb3ad461797d39e271d1178596e231e6df6831751a313c4051c3f84b4d",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b120/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 120,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b120/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "ffbb535e93a4c74673ce7845892fec1591a68078b51a9b93e36bdbcfd1dfb2dd",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b120/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 120,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b120/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "10d99cd87b298c4c2477b4899a3fe3b92903eb22f3954cf924ec1965bc1bb5f7",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b120/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 120,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b120/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "ec1dabfb8e10ad801394a660582b872ab3c52c54c6168e6fd5929977efa7952c",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b120/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 128,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b128/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "1c15b51ea780be8692e7d1eb1ccc8083a347eb103701b28392514df61bfabcde",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b128/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 128,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b128/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "82178c7d31b9aeff950e57b471d265b88958684929936c51ed221c5478c1d5bc",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b128/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 128,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b128/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "2ae89c3b3eed19ae3397476be9fa4760c0c3d17b309542024beb51cbba3e436f",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b128/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 128,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b128/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "51f8649c277da7ab289c9bdeaed6e0dbabe0e228e00499f5e8f9cf616abc432f",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b128/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 128,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b128/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "b43c80fd443fad75b07c806d80a55f9b5a9f3e8f37fd9c518a357dacbdcbd31e",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b128/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 128,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b128/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "1463ee07f50b03b194576d5abdfec5630cf77a7828ca56a4c421878fe8a131df",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b128/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 128,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b128/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "733cc375b9468e6cd7c5078402108d089ccf302cfcdf8c05a4ad04ae13fc31fd",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b128/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 128,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b128/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "d6eb50fc6d796df402a4dc395948a4602bd6ff20cb824234a67f3bfa1d0d263a",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b128/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 136,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b136/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "b5f223ca5a14f7792141fab1184622dad15ef104cf8002ec808bc03151312316",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b136/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 136,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b136/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "0f0d4c0f701169a7cceb2ef4cc06636c78c3f726a6e7202fadce07a3ea599927",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b136/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 136,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b136/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "374d657e0fbe7476250fd61d45b2ce7189aeb9d4c1dadd70eed63138dd02ad6b",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b136/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 136,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b136/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "d6f04fdd8c4cc03c300d74db9ba9bda0de56876e498b7eb33336de1680c4181a",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b136/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 136,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b136/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "ff39ab155019d91a5a5603cb9453060d2eed1aa31032a2278c4c5116968c0ce7",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b136/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 136,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b136/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "eeed2e3d46486b0d485681ab1ca6ddcdaaba0abcdb3adfed599200e0f14e72c9",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b136/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 136,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b136/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "fa33724491e5483190474cd9e2be4a8625a02978007da47a35b3342282aaefde",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b136/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 136,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b136/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "45681d506fe74bf01c27b00e31d08f0fddbf3adc6800cf73357a27c5e87dad8a",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b136/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 144,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b144/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "b5f223ca5a14f7792141fab1184622dad15ef104cf8002ec808bc03151312316",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b144/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 144,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b144/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "7318154cd64eb04699c9114fc984bbfccfc19956963c9053df45a0fad23405ec",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b144/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 144,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b144/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "8807386e2c47c1fbd8dc59a34673400af92641472fd083c549c91a7481f1b949",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b144/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 144,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b144/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "1729ad575a30945a6ca9e8133ead44ac1f53df0e86ef9d72129083f164abad87",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b144/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 144,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b144/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "66c29e6bb15596cac34f48c476047106f101ad3c825f81b688b3199560df30f1",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b144/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 144,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b144/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "27206a3825ef0c9518398e44e64e42e3c6bacc65f3453b6dbececac0f2bfc957",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b144/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 144,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b144/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "46a537329378fdce5639780ca5786131ec78d338033fe465362621db58225807",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b144/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 144,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b144/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "cd6a18d626cfe8c4d29e8217780fd67b714a0b429b252ead2eb7c7114b8949f4",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b144/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 152,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b152/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "b5f223ca5a14f7792141fab1184622dad15ef104cf8002ec808bc03151312316",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b152/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 152,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b152/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "fdaaa18259b426775dfd356cd1f20711c61b612c20fb0711343b28ad04bb4e3c",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b152/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 152,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b152/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "a42a7cecfcc320646c5fc0e56b22e51c805a1fec2b3ba3f6a6551177c7ad02d6",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b152/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 152,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b152/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "6abc928379d8679ba7673e0fbe59f04c15f75d453f992ef8fa034567cccb8453",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b152/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 152,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b152/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "26ecc5f657f1d1eccbcde7cafeccb61bad3fd6dc56fc19960810307aa546a0a5",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b152/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 152,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b152/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "4315af1a5242803f4f3297c4b6f8eb0b945c6300d5efad7d190d2c7fa44f5ead",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b152/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 152,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b152/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "7286d38e8263a71f7cca562ec314555c243614b065e47718a8c2c1814ff32bff",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b152/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 152,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b152/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "2c54f75dc752d6165bca6ffe4ea268f275c41fd7056b9f35fc14cccaf5b6a888",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b152/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 160,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b160/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "b5f223ca5a14f7792141fab1184622dad15ef104cf8002ec808bc03151312316",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b160/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 160,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b160/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "d6f02a592c410586be5265eb88d5ebb465f17811fcb0e8f318fe7b503267f065",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b160/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 160,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b160/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "85ae2c6b2c618a7d5fadc6dcdcddf622d4f937104d95980ab2860b30d7ca5fde",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b160/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 160,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b160/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "307a6b956c5586829c50d0a9d377975bc9d96e571a561bed1e92094f66816408",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b160/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 160,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b160/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "f9a0e3aad27560ede701e4294a59637016c8d1e53451bb5f71ba538743940fe4",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b160/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 160,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b160/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "10b74071d074bba24e380af6ec998d7d0b80d6d1c449448719409cd29951dcc0",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b160/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 160,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b160/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "1b850bd3be6afb758d26e4cf94692b825925b1a37f1d8fcc46d702f321fb6498",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b160/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 160,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b160/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "fd05f722f5a5682b652ba7f241588805032ed206249755ff79ce3e1df420184c",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b160/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 168,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b168/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "b5f223ca5a14f7792141fab1184622dad15ef104cf8002ec808bc03151312316",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b168/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 168,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b168/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "b395f96f9be81202344bd6005d29cf57af4167fd5d1507c891637ae309786e6e",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b168/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 168,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b168/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "7e9337b3f5eec1e57a1650e18ae5aaea4839587e6dd33c8356042e3d3e44f967",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b168/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 168,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b168/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "b8b801c22bb9ea536983bc3b98d23b522bd7cca2299d9f3a3ced43e71e59d469",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b168/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 168,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b168/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "c0ea3b0891bb2b9abf5d83153940f87ab2f41c063a689f792284dd14cc6ef947",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b168/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 168,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b168/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "5c7746acfeccdbdc5422a9a819a5ad440418f7bef5e0d84c719304647fa42747",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b168/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 168,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b168/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "761c078eddbe62591c00aaa13d600a05b99e324740c648ca1930b21fdbe11f56",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b168/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 168,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b168/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "0138eeb988ae75f6ccdf2b01715a1086af2690d8fee9cf6622afa6299a7a0727",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b168/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 176,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b176/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "b5f223ca5a14f7792141fab1184622dad15ef104cf8002ec808bc03151312316",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b176/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 176,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b176/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "7856a254d332b2fc4fbe7a13e823409a0cfbfdb90ae85f6d0e505d991c1af674",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b176/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 176,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b176/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "0f64a05b42b2f317d43a2c1a5a5474956a8797e749ad960623d4a334fb5e820b",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b176/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 176,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b176/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "a5ba42155cc267664897875e19d1333358c217ea6a7ade1d0311eba9583b1463",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b176/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 176,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b176/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "54dfa87a6eec99130abbc1eb539a26154b8e2dc66404610b2a908f59368af18b",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b176/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 176,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b176/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "94042232aa2d166e101f150f318271d94d2c6dbe60487589feb4a8d9a81b580c",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b176/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 176,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b176/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "22ff1e1aa33822f01061bcb5e92f72a7762e60a6d652b52a1bc22f9a5e6c88d9",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b176/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 176,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b176/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "7c65cade149f3e5ec92f630c9ced2a323458cd15cd83dd0b8f25d7e699046a29",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b176/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 184,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b184/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "b5f223ca5a14f7792141fab1184622dad15ef104cf8002ec808bc03151312316",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b184/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 184,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b184/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "08e87d4af028de78071065844a837da9c1192974f25bb296059435a2aca1383d",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b184/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 184,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b184/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "de99d3e72df5a043a8054b77e07e4ae69b3e72bcf04bff9cb79b625effd25239",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b184/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 184,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b184/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "8228c833e6d974dec3e06aa24b8aa4fe4579224f5146a57f8c05082300ff8429",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b184/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 184,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b184/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "0360a1fda96d903766cef8c2cb039fa7579ecd5c002d254881f65e9da1f4ec56",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b184/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 184,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b184/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "0527ae4cde16cc87dd7e21b1afe79ca1414cf0f878b108a53adfb6b76cac9026",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b184/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 184,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b184/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "d6c9d7545e8214167efa9e39106fe855c3566eb3521709e4a841f04cdcd89ca7",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b184/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 184,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b184/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "sha256": "666abe1b31da99868901269696bcabd3e588c1bfbd9d837b976fabee40286d77",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b184/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1_sct1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 192,
+      "rank": 0,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b192/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "98621fa9531d004e4b0c38985a6916124fc5a39bff6154a5c638d84024abbe56",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b192/review/ir_fixed_rank0/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 192,
+      "rank": 1,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b192/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "7e83703d407c0bbfd483ceae294e394ce12a43d0260c7541e4025f26359d6e31",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b192/review/ir_fixed_rank1/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 192,
+      "rank": 2,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b192/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "9429d1fce59a2b6a1e61437bf5e61403bebceaa523b9f259bca2430c51f2f1a4",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b192/review/ir_fixed_rank2/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 192,
+      "rank": 3,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b192/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "46a13e99cd345620165b528c83f7f86c4587dfe407e9cd24f022f5e90996a538",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b192/review/ir_fixed_rank3/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 192,
+      "rank": 4,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b192/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "e0aba186e3ce21163224d16482053c02c18a3b319f8ee4ae4ad645d20b969674",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b192/review/ir_fixed_rank4/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 192,
+      "rank": 5,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b192/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "4ce9764279f05de8e36aec4ae26d1e22196c1647afe1603fa3eeeeea3dd2669c",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b192/review/ir_fixed_rank5/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 192,
+      "rank": 6,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b192/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "0f83f934c3ce0545e5a2ca1a3c3105abe94253ae7aa2d34685506025d2c517d8",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b192/review/ir_fixed_rank6/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    },
+    {
+      "batch": 192,
+      "rank": 7,
+      "isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/b192/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "sha256": "f6e5bb3ff2b50f066743bcfa6b205901ed132af3c846d20831d743af9cbf0dc1",
+      "historical_isa": "/mnt/shared/homes/ming/msa/.scratch/sbm64_retained_sweep_20260914_v1/b192/review/ir_fixed_rank7/megamoe_stage1_compact_t64x256x256_w8_gm1_dcu48_pw1ma1sw1aa1_tr0wpe2_bnt2_ws8_pc0_ptr0_bm4_sl7p0_a1p702b1p0_xq1_sxcd1_pus1_cum1_rbp1_bpa1_qplan1_atb1_asb1_svb1_tf1_m324864_botharbd_epimid16_n256_s2qr1_sharedl13_shxcd1_shu1_shna2_shsmall1_shpacked1/21_final_isa.s",
+      "passed": true
+    }
+  ]
+}

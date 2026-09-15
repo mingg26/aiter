@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "cases": 5371,
+  "promoted_exact_defaults": 13,
+  "only_config_differences": [
+    "stage1.tile_n=256",
+    "stage1.sbm64_path=m32_m48_m64"
+  ],
+  "unmeasured_shapes_partial_batches_and_explicit_environment_unchanged": true
+}

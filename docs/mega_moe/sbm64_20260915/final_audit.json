@@ -1,0 +1,87 @@
+{
+  "passed": true,
+  "date": "2026-09-15",
+  "retained_batches": [
+    64,
+    104,
+    112,
+    120,
+    128,
+    136,
+    144,
+    152,
+    160,
+    168,
+    176,
+    184,
+    192
+  ],
+  "b72": "Rejected SBM64 trial; retain historical fastest SBM32/N512.",
+  "source_identity": {
+    "passed": true,
+    "cpu_s1_isa_objects": 104,
+    "production_and_fork_code_identical": true,
+    "unchanged_generic_sbm32_and_quant": true,
+    "native_pins_unchanged": true,
+    "source_sha256": {
+      "aiter/ops/flydsl/kernels/mega_moe_m3/mega_moe_config.py": "a8e710d97cb9c885b20dc7da7112174b8f6cf5018ca3966043014f0b73ec2cdb",
+      "aiter/ops/flydsl/kernels/mega_moe_m3/mega_moe_m3.py": "fc6353c0f384319c8248d9c73385a52e0140e847cad32d71f9ab96dbff3a13c9",
+      "aiter/ops/flydsl/kernels/mega_moe_m3/mega_moe_stage2.py": "2d66b7c675244eef615089304936a164f60b7e01ca8d25c59f7b3b6ee446aa5a",
+      "aiter/ops/flydsl/kernels/mega_moe_m3/sbm64_m32_m48_m64/__init__.py": "147465ee7a5515fe63e1e63ef0eb245b38ee8c3f34711a823ab3a5d2e67cb2f8",
+      "aiter/ops/flydsl/kernels/mega_moe_m3/sbm64_m32_m48_m64/gemm1.py": "cc09c12d47604bf92832cf544ae16390a1973cf90df323add2ec7cc927602911",
+      "aiter/ops/flydsl/kernels/mega_moe_m3/sbm64_m32_m48_m64/gemm_util.py": "9cbb641dd71852dec70828b8b0ee7f4262c8b3789bd4328363a3eeffb9cd3992",
+      "aiter/ops/flydsl/kernels/mega_moe_m3/sbm64_m32_m48_m64/mega_moe_stage1.py": "caf963c8c16a2588b3aab09564811ee03385a8f12b32bf42d6c398439b5bc9c0",
+      "op_tests/test_mega_moe_m3_config.py": "84d914f148a3843a293ad5f66c8156c9ed13f2756a6cb2a3fc02e88d4e14ff96"
+    },
+    "user_requested_no_remaining_gpu_runs": true
+  },
+  "cpu_s1_isa_objects_matched": 104,
+  "selector_cases_passed": 5371,
+  "cpu_regression_tests_passed": 9,
+  "native_gpu_batches_passed": [
+    64,
+    104,
+    112,
+    120
+  ],
+  "native_gpu_isa_objects_matched": 96,
+  "remaining_native_gpu_batches_not_rerun": [
+    128,
+    136,
+    144,
+    152,
+    160,
+    168,
+    176,
+    184,
+    192
+  ],
+  "validation_scope_authorization": "User explicitly stopped the remaining GPU sweep and required ISA identity; fulfilled by all104 objects plus 4 supplementary native GPU validations.",
+  "performance_evidence": {
+    "runs": 26,
+    "paired_samples": 312,
+    "all_faster": true,
+    "scope": "Previously completed same-process paired quick screening against each previous fastest; no new timing claim in this rollout."
+  },
+  "k3": {
+    "model": "inferact-kimi-k3",
+    "session": "session_ebbbe6de-6172-4d40-b346-b3d01ac8313b",
+    "verdict": "PASS",
+    "final_log": "/mnt/shared/homes/ming/msa/.scratch/sbm64_final_rollout_20260915_v1/review/k3_final.log",
+    "final_log_sha256": "a952f12f953b7424f5b6dcd0a5a1a39f6c3af2961aec2047fa852cf1fddac779",
+    "root_adjudication": "K3 final prose duplicated b104 in its four-batch list. Actual four unique results are b64/104/112/120, as independently checked. Earlier host-N256 allocation speculation was explicitly withdrawn after source inspection."
+  },
+  "commit_identity": "The git commit containing this audit and the exact source hashes above identify the retained implementation. Publication hashes are recorded in the workspace checkpoint after committing.",
+  "gpu_startup_failures": [
+    {
+      "batch": 64,
+      "attempt": "native v1",
+      "reason": "Wrong host-path expectation for the container bind mount; stopped before kernel execution; native_v2 corrected path plus source-hash check."
+    },
+    {
+      "batch": 128,
+      "attempt": "native_v2",
+      "reason": "TCPStore EADDRINUSE port53128 before workers/kernel; not retried after user requested stopping GPU reruns."
+    }
+  ]
+}

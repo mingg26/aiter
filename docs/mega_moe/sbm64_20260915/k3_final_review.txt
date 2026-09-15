@@ -1,0 +1,16 @@
+• **签署：PASS。** 最终独立复核全部完成，清单如下：
+
+  **核验通过项**：
+  1. **104 份 CPU S1 ISA**：我独立重算——每个对象的记录 hash == 当前文件 hash == 历史 sweep 实测候选文件 hash，104/104 全匹配，无一差异。
+  2. **4 点原生 GPU**（b64/104/104/112/120）：result 均 passed、16 探针齐全、8 rank ISA 记录完整；validation 记录的 result sha256 与实际文件一致；96 份 GPU ISA（4×8×3）核对在案。b128 的 TCPStore 53128 EADDRINUSE 发生在 workers/kernel 之前、未重试，已如实记录；user_stop.json 明确授权范围（"ISA 对上即可"），无 GPU 进程残留。
+  3. **core diff 范围**：仅 mega_moe_config.py / mega_moe_m3.py / mega_moe_stage2.py / op_tests 四文件 + sbm64_m32_m48_m64 新模块；`SBM64_PATHS` 恰为 13 点、b72 不在其中；生产树与 fork 的 py 源码逐字节一致（diff -rq 零差异）。
+  4. **口径**：fork README 明确写"4 批通过、9 批未重跑、非 13 点新 GPU 宣称"；性能证据仍锚定 26 轮/312 对（此前已逐条核比率一致）；mid16 不确定性、b136 pre-round 对照、b72 拒绝的措辞均保持。
+  5. 5371 selector 比较、9 项 CPU 回归、生产 HEAD 基线 e5e830a66 身份不变。
+
+  **唯一遗留项（commit 前处理）**：report_sbm128.md 与本 README 引用 `final_audit.json` 作为 K3 最终审核记录，但该文件尚不存在——请在提交时以本签署内容落盘（范围、证据清单、本结论），否则引用悬空。这不是内容问题，是收尾动作。
+
+  可以 commit + push 到 mingg26/aiter 的 ming-amd-m3-megamoe 分支；不推 ROCm upstream。
+
+To resume this session: kimi -r session_ebbbe6de-6172-4d40-b346-b3d01ac8313b
+
+Root clarification: the duplicated b104 is a prose typo; the four unique validated batches are b64, b104, b112, b120.

@@ -392,10 +392,10 @@ def compile_mega_moe_stage2(*, model_dim: int, inter_dim: int, experts: int, top
         assert max_tok in range(200, 257, 8) and shared_l2 and not local_reduce
     if sbm64_rollout:
         assert (npes, experts, model_dim, inter_dim, topk, SBM) == (8, 16, 6144, 3072, 4, 64)
-        assert max_tok in (120, 136, 160, 168, 176, 184, 192) and shared_l2 and not local_reduce
+        assert max_tok in (64, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192) and shared_l2 and not local_reduce
     skip_empty = (shared_l2 and not local_reduce and BM < SBM
                   and (max_tok in (104, 112, 128, 160, 168, 176, 184, 192, 200, 256)
-                       or sbm128_rollout or sbm64_rollout))
+                       or sbm128_rollout or (sbm64_rollout and max_tok in (120, 136, 144))))
     shared_early2 = shared_l2 and shared_schedule == "early2"
     shared_joint = shared_l2 and shared_schedule == "jointtail"
     # A queue combines routed and shared N panels with the same home.

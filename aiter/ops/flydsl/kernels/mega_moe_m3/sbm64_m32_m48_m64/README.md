@@ -1,4 +1,14 @@
-# Experimental b136 SBM64 S1 with M48
+# Retained SBM64 M32/M48/M64 defaults
+
+The measured entry is now selected for b64/104/112/120/128/136/144/152/160/168/176/184/192 under the validated EP8 fused-shared scope. b72 stays SBM32. See [the rollout report](../../../../../../docs/mega_moe/sbm64_20260915/README.md) for the 26-run comparison, scope, S2 choices and integration validation.
+
+The implementation retains both last16 and middle16 producer/consumer guards. The middle16 incremental benefit remains unresolved; its user-approved retention is distinct from the cumulative gains against the pre-round fastest sources. The rejected scale trimming and b72 candidate are not present.
+
+## Historical b136 development record
+
+The following sections describe their original experimental status and comparisons, before the 13-batch default rollout above.
+
+### Initial M48 entry
 
 This private experimental entry adds M48 to the M32/M64 N256 candidate.
 The production selector remains unchanged. The older two-branch checkpoint
